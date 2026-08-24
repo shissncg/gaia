@@ -508,7 +508,7 @@ class TestDevOverride:
         """DEV_MODEL_OPTIONS["custom"] carries no model of its own. Leaving the
         lane's model None left LLMAccountingMiddleware with no name to price the
         call against — it falls back to DEFAULT_PRICING, ~11x the real rate. The
-        client binds PROVIDER_MODELS[CUSTOM] (DEV_LLM_MODEL) as its own default
+        client binds PROVIDER_MODELS[CUSTOM] (LLM_MODEL_NAME) as its own default
         whenever the model key is absent, so resolving that same value changes
         nothing about which model runs and keeps the name visible to accounting.
         """

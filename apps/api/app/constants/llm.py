@@ -293,11 +293,11 @@ OPENROUTER_REASONING: dict[str, Any] = {"effort": "medium"}
 # levels if comms routing or executor tool-selection quality needs more headroom.
 COMMS_REASONING: dict[str, Any] = {"effort": "low"}
 
-# Output cap for the env-defined custom dev provider (the "custom" entry below;
-# endpoint/key/model all come from the DEV_LLM_* settings). 64k fits under the
+# Output cap for the env-defined custom LLM endpoint (the "custom" provider;
+# endpoint/key/model all come from the LLM_* settings). 64k fits under the
 # completion ceilings of the cheap lanes this is meant for (e.g. DeepSeek V4
 # Flash caps at 65,536).
-DEV_LLM_MAX_OUTPUT_TOKENS = 64_000
+CUSTOM_LLM_MAX_OUTPUT_TOKENS = 64_000
 
 # OpenRouter app attribution (https://openrouter.ai/docs/app-attribution). The
 # OpenRouter client surfaces these as the HTTP-Referer / X-Title /
@@ -350,8 +350,8 @@ DEV_MODEL_OPTIONS: dict[str, DevModelOption] = {
         "reasoning": False,
     },
     "custom": {
-        # The env-defined endpoint (DEV_LLM_* settings). `model` None = don't pin
-        # one here; the client's own default (DEV_LLM_MODEL) serves the request.
+        # The env-defined endpoint (LLM_* settings). `model` None = don't pin
+        # one here; the client's own default (LLM_MODEL_NAME) serves the request.
         "provider": LLMProviderName.CUSTOM,
         "model": None,
         "model_kwargs": None,

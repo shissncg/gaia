@@ -54,7 +54,7 @@ class TestActiveLane:
         assert active_lane(_config(None)) == (DEFAULT_LLM_PROVIDER, DEFAULT_MODEL_NAME)
 
     def test_a_lane_that_pins_no_model_answers_with_the_clients_default(self) -> None:
-        """The custom dev endpoint pins no model — the client serves DEV_LLM_MODEL."""
+        """The custom endpoint pins no model — the client serves LLM_MODEL_NAME."""
         assert active_lane(_config({"provider": OPENROUTER_PROVIDER, "model": None})) == (
             OPENROUTER_PROVIDER,
             DEFAULT_MODEL_NAME,

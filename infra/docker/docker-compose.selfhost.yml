@@ -63,6 +63,46 @@ services:
     networks:
       - gaia_network
 
+  # JuiceFS metadata Redis. Mirrors prod (docker-compose.prod.yml) minus TLS
+  # and auth — the API mounts over the compose network, never the public
+  # internet. Holds the whole directory tree + inode→chunk mapping; the object
+  # store (R2/MinIO/S3) holds only anonymous blocks, so losing this loses the
+  # filesystem. Hence noeviction (a cache miss is a bad read; an evicted
+  # metadata key is corruption) and appendfsync always.
+  jfs-meta-redis:
+    image: redis:8-alpine
+    container_name: jfs-meta-redis
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "always",
+        "--maxmemory-policy",
+        "noeviction",
+        "--stop-writes-on-bgsave-error",
+        "yes",
+        "--save",
+        "900 1",
+        "--save",
+        "300 10",
+        "--save",
+        "60 10000",
+      ]
+    ports:
+      - "127.0.0.1:${JFS_META_REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - jfs_meta_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gaia_network
+
   mongo:
     image: mongo:8
     container_name: mongo
@@ -105,6 +145,37 @@ services:
     networks:
       - gaia_network
 
+  # ---------------------------------------------------------------------------
+  # SearXNG — self-hosted metasearch (search fallback; mirrors prod)
+  # ---------------------------------------------------------------------------
+  searxng:
+    # Pinned by digest for reproducible deploys (tag 2026.6.23); bump deliberately.
+    image: searxng/searxng@sha256:f66b296a6fdfe3f656a19e98ac999a9acffa780773e39b3cbbdf673e9c474deb
+    container_name: searxng
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng-template/settings.yml:ro
+    environment:
+      # Safe default; change for a production self-host deploy.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-selfhost-change-me}
+    # Copy the read-only template to a writable path before the image entrypoint
+    # (which injects $SEARXNG_SECRET) runs.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /etc/searxng
+        cp /etc/searxng-template/settings.yml /etc/searxng/settings.yml
+        exec /usr/local/searxng/entrypoint.sh
+    # Only the API needs to reach this — bind to loopback like the other
+    # datastores rather than exposing it on the LAN/public interface.
+    ports:
+      - "127.0.0.1:${SEARXNG_HOST_PORT:-8888}:8080"
+    networks:
+      - gaia_network
+    restart: unless-stopped
+    mem_limit: 600m
+    cpus: "1.0"
+
   # ─── Application ───
 
   gaia-backend:
@@ -126,9 +197,17 @@ services:
       # are configured (R2_*/JUICEFS_META_URL_TEMPLATE in .env) — otherwise
       # workspace v2 features soft-fail with JuiceFSUnavailable.
       JUICEFS_HOST_MOUNT_PATH: /mnt/jfs
+      # JuiceFS metadata store — the bundled jfs-meta-redis service above.
+      # {shard} = the DB index (Phase 1: single shard, 0).
+      JUICEFS_META_URL_TEMPLATE: redis://jfs-meta-redis:6379/{shard}
       # JuiceFS is a FUSE mount; E2B's inotify watcher cannot watch a FUSE
       # filesystem, so artifact detection must tail the JuiceFS .accesslog.
       ARTIFACT_DETECTION_MODE: accesslog
+      # Self-hosted SearXNG — the unlimited last-resort search fallback.
+      SEARXNG_BASE_URL: http://searxng:8080
+      # Shared embedding sidecar — stops this process loading its own
+      # ~1.8GB copy of the fastembed models in-process.
+      MEMORY_EMBEDDING_SIDECAR_URL: http://embedding-sidecar:8200
       # Self-host runs development-mode settings on purpose: ENV=production
       # requires the vendor's full SaaS key ring (see ProductionSettings) and
       # forces Infisical. Security posture that matters (cookie Secure flag,
@@ -171,6 +250,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      jfs-meta-redis:
         condition: service_healthy
       mongo:
         condition: service_healthy
@@ -234,7 +315,15 @@ services:
       # Session/sandbox background tasks touch the workspace, so the worker
       # needs the same JuiceFS mount as the backend.
       JUICEFS_HOST_MOUNT_PATH: /mnt/jfs
+      # JuiceFS metadata store — the bundled jfs-meta-redis service above.
+      # {shard} = the DB index (Phase 1: single shard, 0).
+      JUICEFS_META_URL_TEMPLATE: redis://jfs-meta-redis:6379/{shard}
       ARTIFACT_DETECTION_MODE: accesslog
+      # Self-hosted SearXNG — the unlimited last-resort search fallback.
+      SEARXNG_BASE_URL: http://searxng:8080
+      # Shared embedding sidecar — stops this process loading its own
+      # ~1.8GB copy of the fastembed models in-process.
+      MEMORY_EMBEDDING_SIDECAR_URL: http://embedding-sidecar:8200
       # Self-host runs development-mode settings on purpose: ENV=production
       # requires the vendor's full SaaS key ring (see ProductionSettings) and
       # forces Infisical. Security posture that matters (cookie Secure flag,
@@ -265,6 +354,8 @@ services:
       - juicefs_cache:/var/cache/juicefs
     depends_on:
       redis:
+        condition: service_healthy
+      jfs-meta-redis:
         condition: service_healthy
       mongo:
         condition: service_healthy
@@ -337,13 +428,188 @@ services:
     networks:
       - gaia_network
 
+  # Seeds the Explore gallery (curated workflow templates). Not boot-critical
+  # — gaia-backend does not depend on this completing.
+  seed-explore:
+    container_name: seed-explore
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      PYTHONPATH: /app/apps/api
+      ENV: development
+    # --force skips an interactive input() prompt; --no-backup because the
+    # default backup writes to CWD (/app/apps/api, root-owned) and the
+    # container runs as appuser.
+    command: ["python", "scripts/seed_explore_workflows.py", "--force", "--no-backup"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - gaia_network
+
+  # Seeds GAIA's self-knowledge base in ChromaDB from docs/GAIA.md. Requires
+  # GOOGLE_API_KEY in apps/api/.env; safe to re-run.
+  seed-knowledge:
+    container_name: seed-knowledge
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      PYTHONPATH: /app/apps/api
+      ENV: development
+    command: ["python", "scripts/populate_gaia_knowledge.py"]
+    depends_on:
+      chromadb:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - gaia_network
+
+  # Embedding + reranking sidecar. Loads the fastembed models ONCE so the
+  # backend and worker share a single ~1.8GB copy instead of each loading their
+  # own. Reuses the gaia image; the app processes reach it via
+  # MEMORY_EMBEDDING_SIDECAR_URL=http://embedding-sidecar:8200. Always on
+  # (unlike dev's opt-in profiles) — memory is a core self-hosted feature.
+  embedding-sidecar:
+    container_name: embedding-sidecar
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
+    working_dir: /app/apps/api
+    environment:
+      # Wide-event identity — must equal the Promtail label (see prod compose).
+      GAIA_SERVICE_NAME: embedding-sidecar
+      PYTHONPATH: /app/apps/api
+      LOG_FORMAT: json
+      LOG_COLORIZE: "false"
+      UV_NO_SYNC: 1
+      # Persist the ~1.85GB model weights so repeated `compose up` runs don't
+      # re-download them (the prod sidecar does the same with a named volume).
+      MEMORY_MODEL_CACHE_DIR: /models
+      # Measured (scripts/sidecar_benchmark/): 2 ORT threads per inference
+      # matches 4-thread throughput at high concurrency while using less peak
+      # RSS. Concurrency stays adaptive (cores / threads).
+      MEMORY_ONNX_THREADS: 2
+    volumes:
+      - embedding_models:/models
+    expose:
+      - "8200"
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "app.services.embedding_sidecar.server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8200",
+      ]
+    restart: always
+    # Measured envelope (#918 fix): model floor ~1.9-2.1GB, peak under mixed
+    # load ~2.4GB (bounded batches keep activations flat regardless of request
+    # size). 2560m is a runaway ceiling with headroom; capping below ~2G would
+    # OOM-kill it (the model can't load in less). In prod swarm this is
+    # deploy.resources.limits instead.
+    mem_limit: 2560m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8200/health'); sys.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    networks:
+      - gaia_network
+
+  # ---------------------------------------------------------------------------
+  # Voice Agent Worker — opt-in (profile-gated). Requires three vendor
+  # credentials in apps/api/.env: LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET,
+  # DEEPGRAM_API_KEY (speech-to-text), and ELEVENLABS_API_KEY (text-to-speech).
+  # Enable with: docker compose -f docker-compose.selfhost.yml --profile voice up -d
+  # ---------------------------------------------------------------------------
+  voice-agent-worker:
+    container_name: voice-agent-worker
+    profiles: ["voice"]
+    build:
+      context: ../..
+      dockerfile: apps/voice-agent/Dockerfile
+    image: gaia-voice-agent
+    working_dir: /app/apps/voice-agent
+    environment:
+      PYTHONUNBUFFERED: 1
+      FORCE_COLOR: 0
+      WORKER_TYPE: voice_agent_worker
+      DEBUG: 1
+      WATCHFILES_FORCE_POLLING: 1
+      HF_HUB_OFFLINE: "0"
+      LOCAL_FILES_ONLY: "0"
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      LOG_FORMAT: json
+      LOG_COLORIZE: "false"
+      GAIA_BACKEND_URL: http://gaia-backend:8000
+    env_file:
+      - ../../apps/api/.env
+    volumes:
+      - voice_agent_models:/home/appuser/.cache/huggingface
+    restart: unless-stopped
+    networks:
+      - gaia_network
+
+  # ---------------------------------------------------------------------------
+  # MinIO — example S3-generic object store for JFS_BUCKET_URL, an alternative
+  # to Cloudflare R2 for the JuiceFS workspace bucket. Object storage is a real
+  # operational choice, so this ships commented-out rather than as a default
+  # service — uncomment to run a fully self-hosted storage stack. See the
+  # self-hosting docs for the full walkthrough.
+  # ---------------------------------------------------------------------------
+  # minio:
+  #   image: minio/minio
+  #   container_name: minio
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: gaia-minio
+  #     MINIO_ROOT_PASSWORD: change-me-minio-secret # pragma: allowlist secret
+  #   ports:
+  #     - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
+  #     - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+  #   volumes:
+  #     - minio_data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - gaia_network
+  #
+  # Matching apps/api/.env lines (also set JUICEFS_ALLOW_FORMAT=1 for the
+  # genuine first boot only, then remove it):
+  #   JFS_BUCKET_URL=http://minio:9000/gaia-workspace
+  #   R2_ACCESS_KEY=gaia-minio
+  #   R2_SECRET_KEY=change-me-minio-secret # pragma: allowlist secret
+  #
+  # One-time bucket creation (after `docker compose up -d minio`):
+  #   docker run --rm --network gaia-selfhost_gaia_network \
+  #     -e MC_HOST_local=http://gaia-minio:change-me-minio-secret@minio:9000 \
+  #     minio/mc mb local/gaia-workspace
+
 volumes:
   chroma_data:
   pgdata:
   redis_data:
+  jfs_meta_data:
   mongo_data:
   rabbitmq_data:
   juicefs_cache:
+  embedding_models:
+  # Only used when the voice-agent-worker's "voice" profile is enabled.
+  voice_agent_models:
+  # Only used when the commented-out `minio` service above is enabled.
+  minio_data:
 
 networks:
   gaia_network:

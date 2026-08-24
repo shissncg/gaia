@@ -213,7 +213,7 @@ async def populate_knowledge(content_path: str | None = None, clear_first: bool 
     content_file = Path(content_path)
     if not content_file.exists():
         print(f"❌ Error: {content_path} not found!")
-        return
+        sys.exit(1)
 
     content = content_file.read_text(encoding="utf-8")
     print(f"✅ Loaded content: {len(content)} characters")
@@ -266,6 +266,11 @@ async def populate_knowledge(content_path: str | None = None, clear_first: bool 
     else:
         print("💥 Knowledge population failed — see errors above.")
     print(f"{'=' * 60}")
+
+    # A one-shot compose container must report failure on a partial insert —
+    # otherwise the entrypoint exits 0 and the missing knowledge goes unnoticed.
+    if added_count != len(knowledge_items):
+        sys.exit(1)
 
 
 async def _test_knowledge_search() -> None:

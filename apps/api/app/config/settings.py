@@ -156,6 +156,15 @@ class CommonSettings(BaseAppSettings):
     # Key into the provider registry in app/services/email/providers.
     EMAIL_PROVIDER: str = "resend"
 
+    # SMTP delivery (EMAIL_PROVIDER=smtp). STARTTLS by default; set
+    # SMTP_STARTTLS=false only for a trusted-network relay.
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM: str | None = None
+    SMTP_STARTTLS: bool = True
+
     # ----------------------------------------------
     # Observability
     # ----------------------------------------------
@@ -199,19 +208,33 @@ class CommonSettings(BaseAppSettings):
         return max(CRAWL4AI_MIN_MAX_BROWSERS, parsed)
 
     # ----------------------------------------------
+    # Custom LLM endpoint (any OpenAI/OpenRouter-compatible server:
+    # OpenRouter alternates, vLLM, Ollama's OpenAI API, ...). All three must
+    # be set for the "custom" provider to register. Self-host: this is how
+    # you point the MAIN chat lane at your own model server. Note auxiliary
+    # tasks (follow-ups, workflow generation, ...) still use OpenRouter via
+    # get_default_llm, and memory embeddings still need GOOGLE_API_KEY.
+    # ----------------------------------------------
+    LLM_BASE_URL: str | None = None
+    LLM_API_KEY: str | None = None
+    LLM_MODEL_NAME: str | None = None
+
+    # ----------------------------------------------
     # Dev-only LLM overrides (honored only when ENV=development)
     # ----------------------------------------------
-    # Custom OpenRouter/OpenAI-compatible endpoint for cheap bulk dev/test usage
-    # (e.g. Nous Research's discounted DeepSeek lane). All three must be set; the
-    # "custom" provider is registered exclusively in development (see
-    # register_llm_providers), so these have no effect in production.
-    DEV_LLM_BASE_URL: str | None = None
-    DEV_LLM_API_KEY: str | None = None
-    DEV_LLM_MODEL: str | None = None
     # Default model for every dev request that doesn't pick one in the chat-header
     # selector — any DEV_MODEL_OPTIONS key from app/constants/llm.py ("custom" =
     # the endpoint above). An explicit selector choice still wins.
     DEV_DEFAULT_MODEL: str | None = None
+
+    # ----------------------------------------------
+    # Persistent Workspace Storage (R2 + JuiceFS)
+    # ----------------------------------------------
+    # Full S3-compatible bucket endpoint URL for the JuiceFS object store,
+    # e.g. "http://minio:9000/gaia-workspace" or an AWS S3 URL. When set it
+    # wins over the Cloudflare-R2 URL derived from R2_ACCOUNT_ID/R2_BUCKET.
+    # Credentials still come from R2_ACCESS_KEY/R2_SECRET_KEY (any S3 creds).
+    JFS_BUCKET_URL: str | None = None
 
     # ----------------------------------------------
     # GitHub Integration (for Skill Discovery)
@@ -221,6 +244,15 @@ class CommonSettings(BaseAppSettings):
     # - Gives 5,000 API requests/hour vs 60/hour without token
     # - Used for discovering and installing skills from GitHub
     GITHUB_TOKEN: str | None = None
+
+    # ----------------------------------------------
+    # Composio integration overrides (self-host)
+    # ----------------------------------------------
+    # JSON map of integration id -> Composio auth config id, overriding the
+    # vendor defaults baked into oauth_config.py. Self-hosters create one auth
+    # config per toolkit in their own Composio dashboard and map them here:
+    # COMPOSIO_AUTH_CONFIGS={"gmail": "ac_yourGmailCfg", "googlecalendar": "ac_..."}
+    COMPOSIO_AUTH_CONFIGS: str = ""
 
     # check_fields=False: E2B_DOMAIN is declared per-environment in the subclasses.
     # Rejected rather than stripped because the e2b SDK reads os.environ verbatim —

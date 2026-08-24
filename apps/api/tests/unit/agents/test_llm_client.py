@@ -186,7 +186,7 @@ class TestNextFallbackProvider:
             assert client_module.next_fallback_provider(LLMProviderName.OPENROUTER) is None
 
     def test_an_unconfigured_provider_is_skipped_not_returned_modelless(self) -> None:
-        """The custom dev endpoint's PROVIDER_MODELS entry is ``DEV_LLM_MODEL or
+        """The custom endpoint's PROVIDER_MODELS entry is ``LLM_MODEL_NAME or
         ""``; pinning ``""`` trades one dead provider for a guaranteed bad
         request."""
         with (
@@ -1121,13 +1121,14 @@ class TestRegisterLlmProviders:
 
         mock_gemini.assert_called_once()
         mock_openrouter.assert_called_once()
-        # conftest sets ENV=development, where the dev-only custom provider registers.
+        # Registered unconditionally — the lazy loader's WARN strategy is what
+        # no-ops it when LLM_BASE_URL/LLM_API_KEY/LLM_MODEL_NAME aren't set.
         mock_custom.assert_called_once()
 
     @patch("app.agents.llm.client.init_custom_llm")
     @patch("app.agents.llm.client.init_openrouter_llm")
     @patch("app.agents.llm.client.init_gemini_llm")
-    def test_custom_not_registered_outside_development(
+    def test_custom_registered_in_all_environments(
         self,
         mock_gemini: MagicMock,
         mock_openrouter: MagicMock,
@@ -1139,7 +1140,11 @@ class TestRegisterLlmProviders:
 
         mock_gemini.assert_called_once()
         mock_openrouter.assert_called_once()
-        mock_custom.assert_not_called()
+        # Self-host runs ENV=development permanently, but the vendor's cloud
+        # deploy runs ENV=production and must still be able to register a
+        # custom endpoint (e.g. for cost-optimized bulk lanes) — the provider
+        # is no longer gated on ENV at all.
+        mock_custom.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

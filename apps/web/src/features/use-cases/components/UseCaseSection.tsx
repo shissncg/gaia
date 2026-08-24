@@ -445,7 +445,16 @@ export default function UseCaseSection({
       {filteredUseCases.length === 0 &&
         selectedCategory !== null &&
         selectedCategory !== "workflows" && (
-          <div className="flex h-48 items-center justify-center"></div>
+          <div className="flex h-48 items-center justify-center">
+            <div className="text-center space-y-1">
+              <p className="text-lg text-foreground-600">
+                No use cases installed
+              </p>
+              <p className="text-sm text-foreground-400">
+                The self-hosting guide covers seeding the gallery.
+              </p>
+            </div>
+          </div>
         )}
 
       {selectedCategory === "workflows" &&

@@ -85,7 +85,7 @@ class ModelLane:
     #: boundary that produced it, not as a silent miss in the alternatives map.
     provider: LLMProviderName
     #: ``None`` means "let the client use its own configured default" — the
-    #: env-defined custom dev endpoint serves ``DEV_LLM_MODEL`` this way.
+    #: env-defined custom endpoint serves ``LLM_MODEL_NAME`` this way.
     model: str | None
     reasoning: dict[str, Any] | None
     #: OpenRouter provider-routing pin. Provider-specific by definition, so it
@@ -204,7 +204,7 @@ def _dev_lane(option: DevModelOption, role: AgentRole) -> ModelLane:
     """A lane pinned from the DEV-ONLY model menu.
 
     An entry may carry no model (the env-defined "custom" endpoint), in which
-    case the client binds ``PROVIDER_MODELS[provider]`` (``DEV_LLM_MODEL``) as
+    case the client binds ``PROVIDER_MODELS[provider]`` (``LLM_MODEL_NAME``) as
     its own default. The lane resolves that same value rather than leaving the
     model ``None``: it changes nothing about which model runs, and it keeps the
     resolved name visible to accounting instead of metering the turn at

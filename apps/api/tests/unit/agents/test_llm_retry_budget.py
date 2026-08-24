@@ -37,9 +37,9 @@ def _openrouter_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config.settings import settings
 
     monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "test-key", raising=False)
-    monkeypatch.setattr(settings, "DEV_LLM_API_KEY", "test-key", raising=False)
-    monkeypatch.setattr(settings, "DEV_LLM_BASE_URL", "http://localhost:1", raising=False)
-    monkeypatch.setattr(settings, "DEV_LLM_MODEL", "test/model", raising=False)
+    monkeypatch.setattr(settings, "LLM_API_KEY", "test-key", raising=False)
+    monkeypatch.setattr(settings, "LLM_BASE_URL", "http://localhost:1", raising=False)
+    monkeypatch.setattr(settings, "LLM_MODEL_NAME", "test/model", raising=False)
     _build_default_llm.cache_clear()
     _sim_llm.cache_clear()
 
