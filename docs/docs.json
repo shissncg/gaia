@@ -117,6 +117,7 @@
               "self-hosting/authentication",
               "self-hosting/production",
               "self-hosting/integrations",
+              "self-hosting/upgrading",
               "configuration/environment-variables",
               "configuration/docker"
             ]

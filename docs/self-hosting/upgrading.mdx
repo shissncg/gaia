@@ -1,0 +1,124 @@
+---
+title: "Upgrading"
+sidebarTitle: "Upgrading"
+description: "Pull a newer GAIA version, run data migrations, and back up MongoDB first"
+icon: "arrows-rotate"
+---
+
+Pulling a newer version of this fork is a supported operation. An ordered Mongo migration runner applies any cross-version data repair exactly once, in order — so upgrading never silently leaves old data in a broken shape.
+
+## `gaia update`
+
+The CLI does the whole dance in one command:
+
+```bash
+gaia update
+```
+
+This runs, in order:
+
+1. `git pull --ff-only` in the repo root. If your local branch has diverged from its upstream, this **refuses** rather than merging or rebasing on your behalf — resolve it manually (`git status`, `git log`) and re-run `gaia update`.
+2. `docker compose -f infra/docker/docker-compose.selfhost.yml pull` then `build` — pulls published images where available and rebuilds anything built locally.
+3. `docker compose -f infra/docker/docker-compose.selfhost.yml up run-migrations` — runs the migration runner to completion, streaming its output. A failing migration aborts here, before any service restarts.
+4. `docker compose -f infra/docker/docker-compose.selfhost.yml up -d` — restarts the full stack.
+5. A summary: old → new git SHA, migrations applied/skipped, services running.
+
+`gaia update` only supports self-hosted Docker deployments. In developer mode, `git pull` and restart your `mise dev` services manually.
+
+## Manual equivalent
+
+If you're not using the CLI, the same four steps from the repo root:
+
+```bash
+git pull --ff-only
+
+cd infra/docker
+docker compose -f docker-compose.selfhost.yml pull
+docker compose -f docker-compose.selfhost.yml build
+docker compose -f docker-compose.selfhost.yml up run-migrations
+docker compose -f docker-compose.selfhost.yml up -d
+```
+
+<Warning>
+`docker compose up run-migrations` (without `-d`) does **not** propagate the migration container's own exit code to the `docker compose` process by default — a failed migration would print `[FAILED]` in the logs but `echo $?` would still show `0`. Add `--exit-code-from run-migrations` if you're scripting this and need the real exit code:
+
+```bash
+docker compose -f docker-compose.selfhost.yml up run-migrations --exit-code-from run-migrations
+```
+</Warning>
+
+## What the migration runner does
+
+`apps/api/scripts/run_migrations.py` holds an ordered, append-only registry of cross-version Mongo data repairs. Each entry has an id (e.g. `0002_workflow_status_liveness`) and runs exactly once — a Mongo collection called `applied_migrations` records every id that has completed successfully, and the runner skips anything already in that ledger.
+
+```bash
+docker logs run-migrations
+```
+
+Each line is one of:
+
+- `[skip] <id>: already applied` — nothing to do.
+- `[apply] <id>: <command>` — starting a pending entry.
+- `[applied] <id> (<ms>ms)` — succeeded and recorded.
+- `[FAILED] <id> exited <code> after <ms>ms — halting.` — the runner stops immediately. Nothing after this entry runs, and this entry itself is **not** recorded, so re-running after a fix retries it (and only it) — everything before it stays skipped.
+
+Check what's applied directly:
+
+```bash
+docker exec mongo mongosh --quiet --eval 'db.getSiblingDB("GAIA").applied_migrations.find().toArray()'
+```
+
+### Flags
+
+Run the script directly inside the container for either of these — they aren't exposed through `gaia update`:
+
+```bash
+docker compose -f docker-compose.selfhost.yml run --rm run-migrations python scripts/run_migrations.py --dry-run
+```
+
+Lists every registry entry as `applied` or `pending` and runs nothing.
+
+```bash
+docker compose -f docker-compose.selfhost.yml run --rm run-migrations python scripts/run_migrations.py --force <migration_id>
+```
+
+Re-runs one entry regardless of the ledger — an operator repair tool for when a migration needs to be redone (e.g. it partially wrote data before a container was killed). Ordinary upgrades never need this.
+
+<Note>
+This is Mongo-only. The Postgres layer bootstraps via `Base.metadata.create_all` plus an idempotent timestamp-column promotion on every engine init — there's no Postgres schema history to migrate yet, and no SQLAlchemy model has changed since introduction. Alembic is a real project (baseline autogenerate + stamping every existing install) and is deliberately out of scope for this fork today.
+</Note>
+
+## What can break if you skip this
+
+Before the migration runner existed, nothing ran these scripts automatically — upgrading meant pulling new code onto old data with no repair step. The scheduler-repair migrations exist because of one specific, easy-to-miss failure mode: **an install whose Mongo predates a workflow/reminder scheduling fix has recurring workflows and reminders that silently stop firing after the code upgrades**, with no error, crash, or log line calling it out. The workflow just... stops running. `run-migrations` is wired to complete (via `depends_on: service_completed_successfully`) before `arq_worker` starts, precisely so a repair never races a live scheduler fire.
+
+Skipping `gaia update` in favor of a bare `git pull` + restart is how an install ends up in this state — the code moves forward, the data doesn't, and there's nothing on screen to say so.
+
+## Back up MongoDB first
+
+<Warning>
+The self-host Compose project is named `gaia-selfhost` (set via `name:` in `docker-compose.selfhost.yml`), and the database is `GAIA`. Backup commands written against the *developer* Compose project (`gaia-dev`) or a different database name will run without error and back up the wrong thing — verify the project/database names below match your `docker compose ps` output before trusting a backup.
+</Warning>
+
+```bash
+docker exec mongo mongodump --archive --db GAIA > backup-$(date +%F).archive
+```
+
+Restore it (into a running `mongo` container — this **overwrites** any documents with matching `_id`s in the target collections):
+
+```bash
+docker cp backup-2026-08-24.archive mongo:/tmp/restore.archive
+docker exec mongo mongorestore --archive=/tmp/restore.archive
+```
+
+Both commands were run against a live self-host stack while writing this page: the dump produced a non-empty archive with real collection data, and restoring it into a scratch database (`--nsFrom='GAIA.*' --nsTo='GAIA_restore_test.*'`) reproduced the original document counts exactly.
+
+Take a backup before every upgrade that touches a production instance, the same as you would before any schema change. A migration failing partway through (`[FAILED]`, boot halted) leaves your data in a well-defined state — the failed entry didn't write anything, and everything before it is safe — but a backup is still the fast path back to a known-good state while you investigate.
+
+## Next steps
+
+<CardGroup cols={1}>
+  <Card title="Docker Setup" icon="docker" href="/self-hosting/docker-setup">
+    The full service reference and quick-start walkthrough
+  </Card>
+</CardGroup>
