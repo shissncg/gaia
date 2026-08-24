@@ -269,11 +269,20 @@ class CommonSettings(BaseAppSettings):
         """Discord OAuth callback URL."""
         return f"{self.HOST}/api/v1/platform-auth/discord/callback"
 
+    # Slack's OAuth redirect requires https; the override exists for
+    # vendor-local dev, where a redirectmeto.com proxy bridges that to a
+    # plain-http localhost callback. Set it in your personal .env, never in
+    # shipped config.
+    SLACK_OAUTH_REDIRECT_URI_OVERRIDE: str | None = None
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def SLACK_OAUTH_REDIRECT_URI(self) -> str:
         """Slack OAuth callback URL."""
-        return f"{self.HOST}/api/v1/platform-auth/slack/callback"
+        return (
+            self.SLACK_OAUTH_REDIRECT_URI_OVERRIDE
+            or f"{self.HOST}/api/v1/platform-auth/slack/callback"
+        )
 
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",
@@ -698,12 +707,6 @@ class DevelopmentSettings(CommonSettings):
     # ----------------------------------------------
     BOT_SESSION_TOKEN_SECRET: str | None = None  # Falls back to GAIA_BOT_API_KEY
     BOT_SESSION_TOKEN_EXPIRY_MINUTES: int = 15
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def SLACK_OAUTH_REDIRECT_URI(self) -> str:
-        """Slack OAuth callback URL using redirectmeto proxy for local development."""
-        return "https://redirectmeto.com/http://localhost:8000/api/v1/platform-auth/slack/callback"
 
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",
