@@ -405,6 +405,8 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/gaia-web:${{ steps.tag.outputs.tag }}
             ghcr.io/${{ github.repository_owner }}/gaia-web:${{ github.sha }}
           # The image bakes the Dockerfile's placeholder URL; docker-entrypoint.sh rewrites it at container start.
+          build-args: |
+            NEXT_PUBLIC_SELF_HOSTED=true
           cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/gaia-web:buildcache
           cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/gaia-web:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,compression=zstd
 
