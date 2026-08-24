@@ -7,9 +7,13 @@ contributor development - use local .env files instead.
 
 Local environment variables take precedence over Infisical secrets.
 
+INFISICAL_HOST points the client at any Infisical instance (self-hosted, EU
+cloud, US cloud default). INFISICAL_ENV overrides the secrets-environment
+slug independently of ENV (defaults to ENV).
+
 Resolution:
 - All machine-identity vars set -> fetch remote secrets
-- None set in dev -> skip (local .env only); in prod -> raise
+- None set -> skip (local .env only), in every environment
 - Partially set -> warn in dev, raise in prod
 """
 
@@ -48,10 +52,6 @@ def inject_infisical_secrets() -> None:
     missing = [name for name in _INFISICAL_VARS if not os.getenv(name)]
 
     if not present:
-        if is_production:
-            raise InfisicalConfigError(
-                f"Infisical is required in production. Missing: {', '.join(missing)}"
-            )
         log.info("Infisical skipped: no config vars set (using local .env only)")
         return
 
@@ -75,8 +75,11 @@ def inject_infisical_secrets() -> None:
         start_time = time.time()
         log.info("Connecting to Infisical...")
 
+        host = os.getenv("INFISICAL_HOST", "https://app.infisical.com")
+        env_slug = os.getenv("INFISICAL_ENV") or env
+
         client = InfisicalSDKClient(
-            host="https://app.infisical.com",
+            host=host,
             cache_ttl=3600,
         )
         client.auth.universal_auth.login(
@@ -88,7 +91,7 @@ def inject_infisical_secrets() -> None:
         secrets_start = time.time()
         secrets = client.secrets.list_secrets(
             project_id=project_id,
-            environment_slug=env,
+            environment_slug=env_slug,
             secret_path="/",  # nosec B106 - Infisical folder path, not a credential
             expand_secret_references=True,
             view_secret_value=True,
