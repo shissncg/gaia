@@ -87,8 +87,8 @@ class CommsSuite(Suite):
             CommunicateGate(),
             MustNotCommunicate(),
             RubricJudge(
-                base_url=os.environ.get("DEV_LLM_BASE_URL", ""),
-                api_key=os.environ.get("DEV_LLM_API_KEY", ""),
+                base_url=os.environ.get("LLM_BASE_URL", ""),
+                api_key=os.environ.get("LLM_API_KEY", ""),
                 model=judge_model(cfg),
             ),
         ]

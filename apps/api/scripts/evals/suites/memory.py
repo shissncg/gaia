@@ -194,7 +194,7 @@ def _patch_default_llm_to_pinned_provider() -> None:
 
     ``ainvoke_structured`` builds its model via ``client.get_default_llm``,
     hardcoded to Gemini. The harness instead pins the ``custom_llm`` provider
-    (DEV_LLM_* settings) before each transport call, so this factory swaps the
+    (LLM_* settings) before each transport call, so this factory swaps the
     seam: every memory LLM call lands on the pinned provider. The lazy
     registry caches the instance, and ``pin_settings`` resets it on rotation,
     so the build always reflects the active provider.
@@ -212,7 +212,7 @@ def _patch_default_llm_to_pinned_provider() -> None:
         custom = providers.get("custom_llm")
         if custom is None:
             raise LLMNotConfiguredError(
-                "custom_llm not available — DEV_LLM_BASE_URL / DEV_LLM_API_KEY / DEV_LLM_MODEL must be set"
+                "custom_llm not available — LLM_BASE_URL / LLM_API_KEY / LLM_MODEL_NAME must be set"
             )
         return custom
 

@@ -188,15 +188,20 @@ class CommonSettings(BaseAppSettings):
         return max(CRAWL4AI_MIN_MAX_BROWSERS, parsed)
 
     # ----------------------------------------------
+    # Custom LLM endpoint (any OpenAI/OpenRouter-compatible server:
+    # OpenRouter alternates, vLLM, Ollama's OpenAI API, ...). All three must
+    # be set for the "custom" provider to register. Self-host: this is how
+    # you point the MAIN chat lane at your own model server. Note auxiliary
+    # tasks (follow-ups, workflow generation, ...) still use OpenRouter via
+    # get_default_llm, and memory embeddings still need GOOGLE_API_KEY.
+    # ----------------------------------------------
+    LLM_BASE_URL: str | None = None
+    LLM_API_KEY: str | None = None
+    LLM_MODEL_NAME: str | None = None
+
+    # ----------------------------------------------
     # Dev-only LLM overrides (honored only when ENV=development)
     # ----------------------------------------------
-    # Custom OpenRouter/OpenAI-compatible endpoint for cheap bulk dev/test usage
-    # (e.g. Nous Research's discounted DeepSeek lane). All three must be set; the
-    # "custom" provider is registered exclusively in development (see
-    # register_llm_providers), so these have no effect in production.
-    DEV_LLM_BASE_URL: str | None = None
-    DEV_LLM_API_KEY: str | None = None
-    DEV_LLM_MODEL: str | None = None
     # Default model for every dev request that doesn't pick one in the chat-header
     # selector — any DEV_MODEL_OPTIONS key from app/constants/llm.py ("custom" =
     # the endpoint above). An explicit selector choice still wins.

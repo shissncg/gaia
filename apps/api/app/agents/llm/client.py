@@ -31,11 +31,11 @@ from app.config.settings import settings
 from app.constants.llm import (
     AUX_MODEL_NAME,
     AUX_SESSION_SUFFIX,
+    CUSTOM_LLM_MAX_OUTPUT_TOKENS,
     DEFAULT_GEMINI_MODEL_NAME,
     DEFAULT_LLM_TEMPERATURE,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL_NAME,
-    DEV_LLM_MAX_OUTPUT_TOKENS,
     HELPER_MAX_OUTPUT_TOKENS,
     LLM_INVOKE_TIMEOUT_SECONDS,
     LLM_RETRY_MAX_ATTEMPTS,
@@ -101,9 +101,9 @@ def with_llm_retry(runnable: Runnable, *, max_attempts: int = LLM_RETRY_MAX_ATTE
 PROVIDER_MODELS: dict[LLMProviderName, str] = {
     LLMProviderName.GEMINI: DEFAULT_GEMINI_MODEL_NAME,
     LLMProviderName.OPENROUTER: DEFAULT_MODEL_NAME,
-    # The env-defined custom dev endpoint; empty when unset — the provider is
-    # only registered in development with all DEV_LLM_* settings present.
-    LLMProviderName.CUSTOM: settings.DEV_LLM_MODEL or "",
+    # The env-defined custom endpoint; empty when unset — the provider is
+    # only registered with all LLM_* settings present (any environment).
+    LLMProviderName.CUSTOM: settings.LLM_MODEL_NAME or "",
 }
 PROVIDER_PRIORITY: dict[int, LLMProviderName] = {
     1: LLMProviderName.OPENROUTER,
@@ -232,17 +232,19 @@ def init_openrouter_llm() -> LanguageModelLike:
     name=LLMProviderKey.CUSTOM,
     required_keys=[SIM_STUB_API_KEY]
     if settings.GAIA_SIM_MODE
-    else [settings.DEV_LLM_BASE_URL, settings.DEV_LLM_API_KEY, settings.DEV_LLM_MODEL],
+    else [settings.LLM_BASE_URL, settings.LLM_API_KEY, settings.LLM_MODEL_NAME],
     strategy=MissingKeyStrategy.WARN,
-    warning_message="DEV_LLM_BASE_URL / DEV_LLM_API_KEY / DEV_LLM_MODEL not configured. The custom dev LLM endpoint will not work.",
+    warning_message="LLM_BASE_URL / LLM_API_KEY / LLM_MODEL_NAME not configured. The custom LLM endpoint will not work.",
 )
 def init_custom_llm() -> LanguageModelLike:
-    """DEV-ONLY: the env-defined custom provider — any OpenRouter/OpenAI-compatible
-    endpoint, with base URL, key, and model all from the DEV_LLM_* settings. Routes
-    bulk test traffic to heavily discounted lanes (e.g. Nous Research's DeepSeek
-    models) without spending real credits. ChatOpenRouter works against such
-    endpoints unchanged, including reasoning parsing — only the base URL and key
-    differ. Registered only when ENV=development (see register_llm_providers).
+    """The env-defined custom provider — any OpenAI/OpenRouter-compatible
+    endpoint, with base URL, key, and model all from the LLM_* settings. Lets
+    self-host point the main chat lane at its own model server (vLLM,
+    Ollama's OpenAI API, an OpenRouter alternate, ...) without spending real
+    OpenRouter/Gemini credits. ChatOpenRouter works against such endpoints
+    unchanged, including reasoning parsing — only the base URL and key differ.
+    Registered in every environment (see register_llm_providers); the lazy
+    loader's WARN strategy no-ops it when the three settings aren't all set.
     """
     if settings.GAIA_SIM_MODE:
         return _sim_llm()
@@ -252,16 +254,17 @@ def init_custom_llm() -> LanguageModelLike:
             temperature=DEFAULT_LLM_TEMPERATURE,
             streaming=True,
             stream_usage=True,
-            max_tokens=DEV_LLM_MAX_OUTPUT_TOKENS,
-            api_key=settings.DEV_LLM_API_KEY,
-            base_url=settings.DEV_LLM_BASE_URL,
+            max_tokens=CUSTOM_LLM_MAX_OUTPUT_TOKENS,
+            api_key=settings.LLM_API_KEY,
+            base_url=settings.LLM_BASE_URL,
         )
     )
     # Fractional-window middleware (the summarization/compaction triggers)
     # resolves the context window from the model's profile at graph-build time
     # and raises without it — same contract _build_default_llm satisfies for the
-    # default model and _sim_llm for the stub. The DEV_LLM_* model is env-defined
-    # and has no curated registry entry, so pin the shared default window here.
+    # default model and _sim_llm for the stub. The LLM_MODEL_NAME model is
+    # env-defined and has no curated registry entry, so pin the shared default
+    # window here.
     llm.profile = {"max_input_tokens": DEFAULT_MAX_TOKENS}
     return _openrouter_wire_configurables(llm)
 
@@ -325,8 +328,9 @@ def _get_available_providers() -> dict[LLMProviderName, ProviderLLM]:
 
     available: dict[LLMProviderName, ProviderLLM] = {}
     for provider_name, instance_key in provider_instance_mapping.items():
-        # custom_llm is only registered in development; providers.get() raises
-        # KeyError on an unregistered name, which took every agent graph down.
+        # custom_llm is only available once LLM_BASE_URL/LLM_API_KEY/
+        # LLM_MODEL_NAME are all set; providers.get() raises KeyError on an
+        # unregistered name, which took every agent graph down.
         if not providers.is_available(instance_key):
             continue
         instance = cast(ProviderLLM | None, providers.get(instance_key))
@@ -343,8 +347,8 @@ def next_fallback_provider(current: str | None) -> tuple[LLMProviderName, str] |
     The agent graph selects its lane by ``configurable["provider"]`` and never
     fails over on its own, so this is what a caller that caught a provider
     failure retries onto. A provider with no model configured is skipped rather
-    than returned with an empty model: the custom dev endpoint's
-    ``PROVIDER_MODELS`` entry is ``settings.DEV_LLM_MODEL or ""``, and pinning
+    than returned with an empty model: the custom endpoint's
+    ``PROVIDER_MODELS`` entry is ``settings.LLM_MODEL_NAME or ""``, and pinning
     ``""`` would trade one dead provider for a guaranteed bad request.
     """
     available = _get_available_providers()
@@ -415,11 +419,9 @@ def register_llm_providers() -> None:
     """Register LLM providers in the lazy loader."""
     init_gemini_llm()
     init_openrouter_llm()
-    # The custom endpoint is a dev/testing-only lane — never registered in
-    # production, so DEV_LLM_* vars present in a prod environment can't route
-    # real traffic.
-    if settings.ENV == "development":
-        init_custom_llm()
+    # Registered in every environment — the lazy loader's WARN strategy
+    # no-ops it when LLM_BASE_URL/LLM_API_KEY/LLM_MODEL_NAME aren't all set.
+    init_custom_llm()
 
 
 def get_default_llm(*, temperature: float = DEFAULT_LLM_TEMPERATURE) -> BaseChatModel:

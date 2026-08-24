@@ -43,7 +43,7 @@ export const DEV_MODEL_OPTIONS: DevModelOption[] = [
   {
     id: "custom",
     name: "Custom (env)",
-    provider: "DEV_LLM_BASE_URL endpoint",
+    provider: "LLM_BASE_URL endpoint",
     logo: "/images/logos/logo.webp",
   },
   {
