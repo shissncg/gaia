@@ -232,7 +232,9 @@ describe("getDeploymentDefaults", () => {
   it("returns selfhost deployment defaults", () => {
     const defaults = getDeploymentDefaults("selfhost");
     expect(defaults.SETUP_MODE).toBe("selfhost");
-    expect(defaults.GAIA_BACKEND_URL).toBe("http://gaia-backend:80"); // NOSONAR — internal Docker network URL, not a public endpoint
+    // Regression: this pointed at :80, but the selfhost container listens on
+    // :8000 — the voice agent's GAIA_BACKEND_URL never actually reached it.
+    expect(defaults.GAIA_BACKEND_URL).toBe("http://gaia-backend:8000"); // NOSONAR — internal Docker network URL, not a public endpoint
   });
 
   it("returns developer deployment defaults", () => {
@@ -314,6 +316,42 @@ describe("getWebInfrastructureDefaults", () => {
 
     expect(defaults.NEXT_PUBLIC_API_BASE_URL).toBe(
       "http://localhost:9000/api/v1/",
+    );
+  });
+
+  it("prefers the public API URL over localhost when provided", () => {
+    const defaults = getWebInfrastructureDefaults(
+      "selfhost",
+      undefined,
+      "https://api.gaia.example.com",
+    );
+
+    expect(defaults.NEXT_PUBLIC_API_BASE_URL).toBe(
+      "https://api.gaia.example.com/api/v1/",
+    );
+  });
+
+  it("strips a trailing slash from the public API URL before appending api/v1", () => {
+    const defaults = getWebInfrastructureDefaults(
+      "selfhost",
+      undefined,
+      "https://api.gaia.example.com/",
+    );
+
+    expect(defaults.NEXT_PUBLIC_API_BASE_URL).toBe(
+      "https://api.gaia.example.com/api/v1/",
+    );
+  });
+
+  it("ignores port overrides once a public API URL is set", () => {
+    const defaults = getWebInfrastructureDefaults(
+      "selfhost",
+      { 8000: 9000 },
+      "https://api.gaia.example.com",
+    );
+
+    expect(defaults.NEXT_PUBLIC_API_BASE_URL).toBe(
+      "https://api.gaia.example.com/api/v1/",
     );
   });
 });

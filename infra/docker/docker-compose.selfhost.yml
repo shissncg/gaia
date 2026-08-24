@@ -194,9 +194,11 @@ services:
     build:
       context: ../..
       dockerfile: apps/web/Dockerfile
-      args:
-        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1/}
     environment:
+      # Browser-facing API URL, applied at CONTAINER START by
+      # docker-entrypoint.sh (no rebuild needed to change it). Must be the
+      # URL a browser can reach — your domain/tunnel in real deployments.
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1/}
       # Server-side (SSR/ISR) fetches reach the API over the private network.
       # The public NEXT_PUBLIC_API_BASE_URL is browser-only and is unreachable
       # (or has an untrusted TLS cert) from inside this container, which would

@@ -30,6 +30,7 @@ from app.services.oauth.oauth_state_service import (
     is_safe_redirect_path,
     validate_and_consume_oauth_state,
 )
+from app.utils.auth_utils import session_cookie_kwargs
 from shared.py.wide_events import OAuthContext, log
 
 router = APIRouter()
@@ -467,9 +468,7 @@ async def workos_callback(
         response.set_cookie(
             key=WOS_SESSION_COOKIE,
             value=auth_response.sealed_session or auth_response.access_token,
-            httponly=True,
-            secure=settings.ENV == "production",
-            samesite="lax",
+            **session_cookie_kwargs(),
         )
 
         return response

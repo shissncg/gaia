@@ -55,6 +55,11 @@ COPY . .
 ARG NEXT_PUBLIC_API_BASE_URL=http://preview.placeholder.buildtime/api/v1/
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
+# This image is the self-host distribution of the web app; the vendor's
+# cloud deploy is the Cloudflare/OpenNext path and never uses this file.
+ARG NEXT_PUBLIC_SELF_HOSTED=true
+ENV NEXT_PUBLIC_SELF_HOSTED=$NEXT_PUBLIC_SELF_HOSTED
+
 WORKDIR /app/apps/web
 RUN pnpm build
 

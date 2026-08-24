@@ -45,7 +45,13 @@ def create_app() -> FastAPI:
     """
     # In production, disable the OpenAPI schema entirely so /openapi.json,
     # /docs, and /redoc all 404 — no endpoint listing or model shapes leak.
-    is_prod = settings.ENV == "production"
+    # EXPOSE_API_DOCS overrides this when set, decoupling docs exposure from
+    # ENV (e.g. a self-host running ENV=development on a public domain).
+    expose_docs = (
+        settings.EXPOSE_API_DOCS
+        if settings.EXPOSE_API_DOCS is not None
+        else settings.ENV != "production"
+    )
     app = FastAPI(
         lifespan=lifespan,
         title="GAIA API",
@@ -55,9 +61,9 @@ def create_app() -> FastAPI:
             "url": "http://heygaia.io",
             "email": "hi@heygaia.io",
         },
-        openapi_url=None if is_prod else "/openapi.json",
-        docs_url=None if is_prod else "/docs",
-        redoc_url=None if is_prod else "/redoc",
+        openapi_url="/openapi.json" if expose_docs else None,
+        docs_url="/docs" if expose_docs else None,
+        redoc_url="/redoc" if expose_docs else None,
         default_response_class=UJSONResponse,
     )
 

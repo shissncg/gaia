@@ -97,3 +97,22 @@ class TestPostHogContextDoesNotSwallowExceptions:
 
             with pytest.raises(RuntimeError, match="the real bug in the handler"):
                 client.get("/boom")
+
+
+def test_cors_allowed_origins_setting_extends_the_list(monkeypatch) -> None:
+    from app.core import middleware as mw
+
+    monkeypatch.setattr(
+        mw.settings, "CORS_ALLOWED_ORIGINS", "https://gaia.example.com, https://alt.example.com/"
+    )
+    origins = mw.get_allowed_origins()
+    assert "https://gaia.example.com" in origins
+    assert "https://alt.example.com" in origins  # trailing slash stripped
+    assert mw.settings.FRONTEND_URL in origins  # never replaces the base list
+
+
+def test_cors_origin_regex_setting_wins(monkeypatch) -> None:
+    from app.core import middleware as mw
+
+    monkeypatch.setattr(mw.settings, "CORS_ALLOWED_ORIGIN_REGEX", r"^https://.*\.example\.com$")
+    assert mw.get_allowed_origin_regex() == r"^https://.*\.example\.com$"

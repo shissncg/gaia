@@ -74,8 +74,12 @@ export default function DesktopLoginPage() {
   }, []);
 
   const handleOpenLogin = () => {
-    const apiBaseUrl =
-      process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.heygaia.io/api/v1/";
+    const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+    if (!apiBaseUrl) {
+      throw new Error(
+        "NEXT_PUBLIC_API_BASE_URL is not configured — cannot build the desktop login URL.",
+      );
+    }
     const loginUrl = `${apiBaseUrl}oauth/login/workos/desktop`;
 
     trackEvent(ANALYTICS_EVENTS.NAVIGATION_CTA_CLICKED, {

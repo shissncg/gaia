@@ -149,11 +149,17 @@ def get_allowed_origins() -> list[str]:
         allowed_origins.extend(
             [
                 "http://localhost:3000",
-                "http://192.168.138.215:5173",
-                "https://192.168.13.215:5173",
                 *desktop_origins,
             ]
         )
+
+    # Operator-configured origins (e.g. a self-hosted custom domain), on top
+    # of the built-in list above regardless of ENV.
+    allowed_origins.extend(
+        origin.strip().rstrip("/")
+        for origin in settings.CORS_ALLOWED_ORIGINS.split(",")
+        if origin.strip()
+    )
 
     return allowed_origins
 
@@ -165,6 +171,9 @@ def get_allowed_origin_regex() -> str | None:
     without a subdomain — covers dev servers on arbitrary ports (e.g. worktree
     ports) and `*.localhost` tunnels alike.
     """
+    origin_regex: str | None = settings.CORS_ALLOWED_ORIGIN_REGEX
+    if origin_regex:
+        return origin_regex
     if settings.ENV == "production":
         return None
     return r"^https?://([a-z0-9-]+\.)?localhost(?::\d+)?$"

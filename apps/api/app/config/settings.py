@@ -121,6 +121,26 @@ class CommonSettings(BaseAppSettings):
 
     HOST: str = "https://api.heygaia.io"
     FRONTEND_URL: str = "https://heygaia.io"
+    # Extra CORS origins beyond FRONTEND_URL, comma-separated, e.g.
+    # "https://gaia.example.com,https://www.gaia.example.com". Must be explicit
+    # origins — the CORS layer runs with allow_credentials=True, under which
+    # a wildcard origin is silently ignored by Starlette.
+    CORS_ALLOWED_ORIGINS: str = ""
+    # Optional regex of additional allowed origins; overrides the built-in
+    # dev-only localhost regex when set.
+    CORS_ALLOWED_ORIGIN_REGEX: str | None = None
+    # Session-cookie policy. COOKIE_SECURE=None derives from the HOST scheme
+    # (https -> Secure) instead of ENV, so a self-hosted https deployment
+    # running development-mode settings still gets Secure cookies.
+    COOKIE_SECURE: bool | None = None
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
+    # Set to share the session across subdomains (e.g. ".example.com" when
+    # web and API live on different subdomains). Leave unset for host-only.
+    COOKIE_DOMAIN: str | None = None
+    # None = current behavior (docs exposed outside production). Set explicitly
+    # to decouple /docs exposure from ENV, e.g. a self-host running
+    # ENV=development on a public domain that wants EXPOSE_API_DOCS=false.
+    EXPOSE_API_DOCS: bool | None = None
     DUMMY_IP: str = "8.8.8.8"
     WORKER_TYPE: str = "unknown"
     ENABLE_LAZY_LOADING: bool = True
@@ -253,11 +273,20 @@ class CommonSettings(BaseAppSettings):
         """Discord OAuth callback URL."""
         return f"{self.HOST}/api/v1/platform-auth/discord/callback"
 
+    # Slack's OAuth redirect requires https; the override exists for
+    # vendor-local dev, where a redirectmeto.com proxy bridges that to a
+    # plain-http localhost callback. Set it in your personal .env, never in
+    # shipped config.
+    SLACK_OAUTH_REDIRECT_URI_OVERRIDE: str | None = None
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def SLACK_OAUTH_REDIRECT_URI(self) -> str:
         """Slack OAuth callback URL."""
-        return f"{self.HOST}/api/v1/platform-auth/slack/callback"
+        return (
+            self.SLACK_OAUTH_REDIRECT_URI_OVERRIDE
+            or f"{self.HOST}/api/v1/platform-auth/slack/callback"
+        )
 
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",
@@ -682,12 +711,6 @@ class DevelopmentSettings(CommonSettings):
     # ----------------------------------------------
     BOT_SESSION_TOKEN_SECRET: str | None = None  # Falls back to GAIA_BOT_API_KEY
     BOT_SESSION_TOKEN_EXPIRY_MINUTES: int = 15
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def SLACK_OAUTH_REDIRECT_URI(self) -> str:
-        """Slack OAuth callback URL using redirectmeto proxy for local development."""
-        return "https://redirectmeto.com/http://localhost:8000/api/v1/platform-auth/slack/callback"
 
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",

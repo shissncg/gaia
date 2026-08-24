@@ -31,6 +31,7 @@ from app.models.user_models import (
 from app.services.analytics_service import AnalyticsEvents, capture_context_event, track_logout
 from app.services.onboarding.onboarding_service import get_user_onboarding_status
 from app.services.user_service import update_user_profile
+from app.utils.auth_utils import session_cookie_kwargs
 from app.utils.timezone import is_valid_timezone
 from shared.py.wide_events import log
 
@@ -385,10 +386,8 @@ async def logout(
         # Clear the session cookie
         response.delete_cookie(
             WOS_SESSION_COOKIE,
-            httponly=True,
             path="/",
-            secure=settings.ENV == "production",
-            samesite="lax",
+            **session_cookie_kwargs(),
         )
 
         log.set(outcome="success")

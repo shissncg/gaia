@@ -250,6 +250,7 @@ const nextConfig = {
   },
   env: {
     NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+    NEXT_PUBLIC_SELF_HOSTED: process.env.NEXT_PUBLIC_SELF_HOSTED,
   },
   // Files named *.dev.tsx / *.dev.ts are only routable in development. In
   // production builds Next never registers them as routes, so their pages,

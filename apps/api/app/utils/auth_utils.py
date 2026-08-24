@@ -12,6 +12,31 @@ from app.models.user_models import AuthenticatedUser, UserDocument, user_to_lega
 from shared.py.wide_events import log
 
 
+def session_cookie_kwargs() -> dict[str, Any]:
+    """Shared wos_session cookie policy — the single source for the three
+    set/delete sites so their security attributes can never drift.
+
+    Sites still own their non-policy kwargs (max_age on the middleware
+    refresh, path on the logout delete).
+    """
+    secure = settings.COOKIE_SECURE
+    if secure is None:
+        secure = settings.HOST.startswith("https://")
+    if settings.COOKIE_SAMESITE == "none" and not secure:
+        raise ValueError(
+            "COOKIE_SAMESITE=none requires Secure cookies (COOKIE_SECURE=true "
+            "or an https HOST) — browsers reject SameSite=None without Secure."
+        )
+    kwargs: dict[str, Any] = {
+        "httponly": True,
+        "secure": secure,
+        "samesite": settings.COOKIE_SAMESITE,
+    }
+    if settings.COOKIE_DOMAIN:
+        kwargs["domain"] = settings.COOKIE_DOMAIN
+    return kwargs
+
+
 async def resolve_dev_bypass_user(
     headers: Headers, cookies: Mapping[str, str] | None = None
 ) -> tuple[str, UserDocument | None]:
