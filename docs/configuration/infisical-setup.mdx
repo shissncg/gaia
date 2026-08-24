@@ -14,10 +14,10 @@ Infisical is the secret management platform the GAIA team uses to share environm
 - **Instant revocation** when a credential leaks or a teammate leaves
 
 <Note>
-  Infisical is **optional**. Self-hosters and open-source contributors should
-  skip this page entirely and use plain `.env` files — every app falls back to
-  local environment variables automatically. Infisical is only required in
-  production (`ENV=production`).
+  Infisical is **optional in every environment, including production**.
+  Self-hosters and open-source contributors should skip this page entirely
+  and use plain `.env` files — every app falls back to local environment
+  variables automatically.
 </Note>
 
 ## How Infisical Works with GAIA
@@ -37,18 +37,21 @@ At startup, each app (API, bots, voice agent) calls its Infisical loader (`injec
   so those values are already "local" by the time `.env` files load.)
 </Warning>
 
-If no Infisical variables are configured:
-
-- In development, the loader logs a message and continues with your local `.env`
-- In production, the app refuses to start
+If no Infisical variables are configured, the loader logs a message and
+continues with your local `.env` — in every environment, including
+production. Partially configuring it (some but not all three machine-identity
+vars) still raises in production; see
+[Troubleshooting](#troubleshooting).
 
 <Warning>
   **The default when `ENV` is unset differs by runtime.** The Python apps (API,
-  voice agent) default to `production` and so refuse to boot without Infisical —
-  `apps/api/.env.example` ships `ENV=development`, so copy it rather than writing
-  `.env` from scratch. The bots default to `development`, keeping a bare checkout
-  runnable with no setup; their deployed containers cannot reach that fallback
-  because `apps/bots/Dockerfile` pins `ENV=production`.
+  voice agent) default to `production` when `ENV` is unset —
+  `apps/api/.env.example` ships `ENV=development`, so copy it rather than
+  writing `.env` from scratch. This only affects the secrets-environment slug
+  and the partial-config raise above; zero Infisical vars skips in every
+  environment regardless of `ENV`. The bots default to `development`, keeping
+  a bare checkout runnable with no setup; their deployed containers cannot
+  reach that fallback because `apps/bots/Dockerfile` pins `ENV=production`.
 </Warning>
 
 ## Team Development Workflow (Recommended)
@@ -122,6 +125,39 @@ ENV=development
   development and fails the boot in production.
 </Warning>
 
+## Self-hosted Infisical
+
+If you run Infisical itself self-hosted (not just GAIA), the app loaders and
+the `infisical` CLI point at two different things and need separate
+configuration.
+
+**App loaders** (`inject_infisical_secrets()` / `injectInfisicalSecrets()`):
+set `INFISICAL_HOST` to your instance's URL alongside the machine-identity
+vars:
+
+```bash
+INFISICAL_HOST=https://infisical.your-domain.example.com
+INFISICAL_PROJECT_ID=your-project-id
+INFISICAL_MACHINE_IDENTITY_CLIENT_ID=your-client-id
+INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET=your-client-secret
+```
+
+`INFISICAL_HOST` defaults to `https://app.infisical.com` (US cloud) when
+unset; the same variable also points at the EU cloud region if you use that
+instead. `INFISICAL_ENV` is a separate, optional override for the
+secrets-environment slug — it defaults to `ENV` and only needs setting when
+the slug should differ from it.
+
+**The `infisical` CLI** (`mise infisical dev`, `.infisical.json`) is a
+different client, used only by team developers running `infisical login` +
+`infisical run` for local development — it is unaffected by `INFISICAL_HOST`
+and keeps pointing at Infisical Cloud by default. To point the CLI itself at
+a self-hosted instance, follow [Infisical's own CLI
+docs](https://infisical.com/docs/cli/overview): set the `INFISICAL_API_URL`
+environment variable, or pass `--domain` to `infisical login`. The `mise
+infisical` task wrapping is a vendor-team convenience and stays unchanged
+either way.
+
 ## Production: Machine Identity
 
 Production authenticates with a **single machine identity** shared by every service (see `infra/docker/docker-compose.prod.yml`).
@@ -176,12 +212,12 @@ wrangler secret put BLOG_BEARER_TOKEN
 ## Troubleshooting
 
 <AccordionGroup>
-  <Accordion title="InfisicalConfigError: Infisical is required in production">
-    **Solution**: The app resolved `ENV` to `production` — either explicitly, or
-    because it is unset and the Python loaders default to `production` — but has
-    no Infisical credentials. Provide the machine identity credentials (in
-    production these arrive as Docker Swarm secrets), or set `ENV=development`
-    for local work.
+  <Accordion title="Running ENV=production with zero Infisical vars">
+    **This is expected, not an error.** Zero `INFISICAL_*` vars skips the
+    loader and continues with your local `.env` in every environment,
+    including production — there is no `InfisicalConfigError` for this case.
+    Provide the machine identity credentials (in production these arrive as
+    Docker Swarm secrets) only if you actually want to fetch from Infisical.
   </Accordion>
 
   <Accordion title="Incomplete Infisical config: missing ...">
