@@ -16,6 +16,7 @@ gaia dev           # Developer mode (Nx TUI)
 gaia dev full      # Developer mode + workers (Nx TUI)
 gaia logs          # Stream logs
 gaia stop          # Stop services
+gaia update        # Pull, rebuild, migrate, restart (self-host mode)
 gaia status        # Check service health
 gaia --version     # Show CLI version
 gaia --help        # Show all commands
@@ -32,6 +33,7 @@ gaia --help        # Show all commands
 | `gaia dev full`  | Run developer mode + workers in Nx TUI (`mise dev:full`)                     |
 | `gaia logs`      | Stream logs for currently running services                                   |
 | `gaia stop`      | Stop running GAIA services                                                   |
+| `gaia update`    | Pull, rebuild, migrate, and restart (self-host mode)                         |
 | `gaia status`    | Check health and latency of GAIA services                                    |
 | `gaia --version` | Display the current CLI version                                              |
 | `gaia --help`    | Show help and available commands                                             |
@@ -163,6 +165,20 @@ By default, `gaia stop` runs in safe mode and only targets GAIA-managed processe
 
 ---
 
+## `gaia update`
+
+Pull the latest code, rebuild images, run pending database migrations, and restart — the full upgrade flow in one command.
+
+```bash
+gaia update
+```
+
+Runs, in order: `git pull --ff-only` (refuses rather than merging/rebasing if your branch has diverged), `docker compose pull` + `build`, `docker compose up run-migrations` (aborts here on a failed migration, before anything restarts), then `docker compose up -d` to restart the full stack. Prints a summary: old → new git SHA, migrations applied/skipped, services running.
+
+Self-host mode only — see [Upgrading](/self-hosting/upgrading) for the full flow, the manual equivalent, and how to read the migration runner's output.
+
+---
+
 ## `gaia status`
 
 Check health and latency of GAIA services.
@@ -191,9 +207,10 @@ Overrides persist across restarts and are reused by `gaia start`, `gaia logs`, a
 
 ```bash
 cd /path/to/gaia
-git pull
-gaia setup
+gaia update
 ```
+
+See [Upgrading](/self-hosting/upgrading) for the full flow (migrations, backups, what can break) and the manual equivalent if you're not using the CLI.
 
 ### Updating the CLI
 

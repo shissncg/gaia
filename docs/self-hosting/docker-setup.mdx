@@ -1,15 +1,15 @@
 ---
 title: "Docker Setup"
-description: "Complete guide to deploying GAIA with Docker Compose"
+description: "Deploy GAIA with the real self-host Docker Compose stack: docker-compose.selfhost.yml"
 icon: "docker"
 ---
 
 ## Docker Deployment Guide
 
-GAIA uses Docker Compose to orchestrate all the required services. This makes deployment simple and ensures consistency across different environments.
+GAIA's self-host deployment is one Compose file: **`infra/docker/docker-compose.selfhost.yml`**. Every command on this page targets it explicitly (`-f docker-compose.selfhost.yml`) — the bare `docker compose` commands you'll see in older guides or muscle memory target `docker-compose.yml`, the *developer* compose file, which only starts the bare databases and expects `gaia-backend`/`gaia-web` to run natively via `mise dev`. Running that instead of the selfhost file is the single most common cause of "nothing is listening on port 3000."
 
 <Note>
-**Looking for an easier setup?** The [GAIA CLI](/cli/installation) provides a guided wizard that handles Docker setup automatically, including prerequisite checks, environment variable discovery, and service management. This guide covers manual Docker setup for advanced users who prefer full control.
+**Looking for a guided setup instead?** The [GAIA CLI](/cli/installation) (`gaia init` → `gaia start`) wraps everything on this page — prerequisite checks, `.env` scaffolding, port-conflict handling, and service management. This guide is the manual path for anyone who wants to see (or control) every step.
 </Note>
 
 ## Prerequisites
@@ -32,170 +32,207 @@ GAIA uses Docker Compose to orchestrate all the required services. This makes de
     sudo usermod -aG docker $USER
     newgrp docker
     ```
-
   </Accordion>
 
-  <Accordion icon="server" title="System Requirements">
-    **Minimum Requirements:**
-    - 2 CPU cores
-    - 4GB RAM
-    - 10GB free disk space
-    - Docker Engine 20.10+
-    - Docker Compose v2.0+
+  <Accordion icon="key" title="A WorkOS account">
+    GAIA's login flow rides entirely on WorkOS AuthKit — there is no local email/password login. A free WorkOS account and an AuthKit application are a hard prerequisite. See [Authentication](/self-hosting/authentication) for the full walkthrough; you'll need `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, and `WORKOS_COOKIE_PASSWORD` before the stack is usable.
+  </Accordion>
 
-    **Recommended for Production:**
-    - 4+ CPU cores
-    - 8+ GB RAM
-    - 50+ GB SSD storage
-    - Regular backups configured
-
+  <Accordion icon="key" title="LLM provider API keys">
+    The seeded default chat model runs on **OpenRouter**, and embeddings/vision run on **Google Gemini** — not OpenAI, and no OpenAI model is seeded. Get `OPENROUTER_API_KEY` from [openrouter.ai](https://openrouter.ai) and `GOOGLE_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey). Both are free to start.
   </Accordion>
 </AccordionGroup>
-
-## Project Structure
-
-<Note>
-When using the CLI quick start, running `gaia init` with **Self-Host (Docker)**
-scaffolds this structure automatically.
-</Note>
-
-```
-gaia/
-├── apps/
-│   ├── api/
-│   │   ├── Dockerfile
-│   │   ├── .env                # API environment variables
-│   │   └── ...
-│   ├── web/
-│   │   ├── Dockerfile
-│   │   ├── .env                # Web environment variables
-│   │   └── ...
-├── docs/
-├── infra/
-│   └── docker/
-│       ├── docker-compose.yml      # Development compose file
-│       └── docker-compose.prod.yml # Production compose file
-└── ...
-```
 
 ## Quick Start
 
 <Steps>
-  <Step title="Install CLI and initialize self-host mode">
-    <CodeGroup>
-
-    ```bash npm
-    npm install -g @heygaia/cli
+  <Step title="Clone the repo">
+    ```bash
+    git clone https://github.com/theexperiencecompany/gaia.git
+    cd gaia
     ```
+  </Step>
 
-    ```bash pnpm
-    pnpm add -g @heygaia/cli
-    ```
-
-    ```bash bun
-    bun add -g @heygaia/cli
-    ```
-
-    </CodeGroup>
+  <Step title="Create the API env file">
+    Every command below reads `apps/api/.env` — Compose fails immediately without it:
 
     ```bash
-    gaia init
+    cp apps/api/.env.example apps/api/.env
     ```
+  </Step>
 
-    Choose **Self-Host (Docker)** in the setup wizard.
+  <Step title="Fill in the minimum set of variables">
+    Open `apps/api/.env` and set these. Everything else has a working default for a local Docker deployment:
+
+    | Variable | Where to get it |
+    | --- | --- |
+    | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_COOKIE_PASSWORD` | Your WorkOS dashboard — see [Authentication](/self-hosting/authentication) |
+    | `OPENROUTER_API_KEY` | [openrouter.ai](https://openrouter.ai) — the seeded default chat model |
+    | `GOOGLE_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) — embeddings + vision |
+
+    `ENV=development` and `DEPLOYMENT_MODE=self_hosted` already ship correct in `.env.example` — leave them. `MONGO_DB` and `REDIS_URL` also ship with `localhost` defaults for native runs; inside Docker the Compose file overrides both to the in-stack container hostnames (`mongo`, `redis`) automatically, so you don't need to touch them for this quick start.
   </Step>
 
   <Step title="Start the stack">
     ```bash
-    gaia start
+    cd infra/docker
+    docker compose -f docker-compose.selfhost.yml up -d
     ```
+
+    First boot builds `gaia-backend`, `gaia-web`, and the seed/migration one-shots locally — this can take several minutes depending on your machine.
   </Step>
 
-  <Step title="Verify and monitor">
+  <Step title="Check it came up healthy">
     ```bash
-    gaia status
-    gaia logs
+    docker compose -f docker-compose.selfhost.yml ps
     ```
 
-    Access the applications:
-    - **GAIA Web**: http://localhost:3000
-    - **Backend API**: http://localhost:8000
-    - **API Docs**: http://localhost:8000/docs
-    - **ChromaDB**: http://localhost:8080
-    - **RabbitMQ Management**: http://localhost:15672 (guest/guest)
-    - **Mongo Express**: http://localhost:8081 (admin/password)
+    A healthy stack looks like this — the long-running services `Up (healthy)`, and every one-shot `Exited (0)`:
 
+    ```
+    NAME                IMAGE                                      SERVICE             STATUS
+    chromadb            chromadb/chroma:1.5.1                      chromadb            Up (healthy)
+    embedding-sidecar   ghcr.io/.../gaia:latest                    embedding-sidecar   Up (healthy)
+    gaia-backend        ghcr.io/.../gaia:latest                    gaia-backend        Up (healthy)
+    gaia-web            ghcr.io/.../gaia-web:latest                gaia-web            Up (healthy)
+    jfs-meta-redis      redis:8-alpine                             jfs-meta-redis      Up (healthy)
+    mongo               mongo:8                                    mongo               Up (healthy)
+    postgres            postgres:18-alpine                         postgres            Up (healthy)
+    rabbitmq            rabbitmq:4.1.8-management                  rabbitmq            Up (healthy)
+    redis               redis:8-alpine                             redis               Up (healthy)
+    run-migrations      ghcr.io/.../gaia:latest                    run-migrations      Exited (0)
+    searxng             searxng/searxng@sha256:...                 searxng             Up
+    seed-explore        ghcr.io/.../gaia:latest                    seed-explore        Exited (0)
+    seed-knowledge      ghcr.io/.../gaia:latest                    seed-knowledge      Exited (0)
+    seed-models         ghcr.io/.../gaia:latest                    seed-models         Exited (0)
+    seed-plans          ghcr.io/.../gaia:latest                    seed-plans          Exited (0)
+    ```
+
+    An `Exited (0)` one-shot is success, not a crash — `run-migrations` and every `seed-*` service run once to completion and stop. A nonzero exit code on any of them means that step failed; check its logs (`docker compose -f docker-compose.selfhost.yml logs <service>`) before assuming the stack is up.
+
+    Access the app:
+    - **Web**: [http://localhost:3000](http://localhost:3000)
+    - **Backend API**: [http://localhost:8000](http://localhost:8000)
+    - **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
   </Step>
 </Steps>
 
 ## Service Overview
 
-The Docker Compose setup includes the following services:
+Every service defined in `docker-compose.selfhost.yml`, one line each:
+
+| Service | What it is | When it runs |
+| --- | --- | --- |
+| `mongo` | Primary document store — users, conversations, workflows, integrations | Always on |
+| `postgres` | LangGraph checkpoint state | Always on |
+| `redis` | Cache + session store | Always on |
+| `jfs-meta-redis` | JuiceFS metadata store for the workspace filesystem | Always on |
+| `chromadb` | Vector store for memory embeddings | Always on |
+| `rabbitmq` | Message broker for background workflow execution | Always on |
+| `searxng` | Self-hosted metasearch — the unlimited last-resort web search fallback | Always on |
+| `embedding-sidecar` | Shared embedding/reranking model server; `gaia-backend` and `arq_worker` call it instead of each loading their own ~1.8GB model copy | Always on |
+| `run-migrations` | Ordered Mongo migration runner — applies pending cross-version data repairs exactly once, tracked in a ledger. See [Upgrading](/self-hosting/upgrading) | Runs once, before every seed and before the app boots; exits |
+| `seed-models` | Seeds the AI model catalog | Runs once at boot (idempotent); exits |
+| `seed-plans` | Seeds subscription plan documents | Runs once at boot (idempotent); exits |
+| `seed-explore` | Seeds the Explore gallery (curated workflow templates) — not boot-critical | Runs once at boot; exits |
+| `seed-knowledge` | Populates GAIA's self-knowledge base in ChromaDB from `docs/GAIA.md` — requires `GOOGLE_API_KEY` | Runs once at boot; exits |
+| `gaia-backend` | FastAPI application — REST API, SSE chat stream | Always on |
+| `gaia-web` | Next.js web app | Always on |
+| `arq_worker` | Background task worker — scheduled workflows, reminders, notifications | Always on |
+| `voice-agent-worker` | LiveKit voice agent | Opt-in — `--profile voice` (see below) |
+| `minio` (commented out) | Example S3-generic object store, an alternative to Cloudflare R2 for the workspace bucket | Disabled by default — uncomment to enable |
+
+The web container's URL configuration is applied at **container start**, not build time — this is the real block from the compose file:
+
+```yaml
+gaia-web:
+  environment:
+    # Browser-facing API URL, applied at CONTAINER START by
+    # docker-entrypoint.sh (no rebuild needed to change it). Must be the
+    # URL a browser can reach — your domain/tunnel in real deployments.
+    NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1/}
+    # Server-side (SSR/ISR) fetches reach the API over the private network.
+    API_BASE_URL_INTERNAL: ${API_BASE_URL_INTERNAL:-http://gaia-backend:8000/api/v1/}
+```
+
+Changing `NEXT_PUBLIC_API_BASE_URL` (in `infra/docker/.env`) needs only a container **restart** (`docker compose -f docker-compose.selfhost.yml up -d gaia-web`), never a rebuild — see [Production Domain](/self-hosting/production) for putting GAIA behind a real domain.
+
+## Optional Features
 
 <AccordionGroup>
-  <Accordion icon="react" title="Web (gaia-web)">
-    **Next.js React Application**
-    - Port: 3000
-    - Hot reload enabled in development
-    - Serves the web interface
+  <Accordion icon="folder-tree" title="JuiceFS workspace storage (MinIO or S3-compatible)">
+    Per-user workspace storage (file uploads, agent artifacts, installed skills) needs an S3-compatible object store plus the bundled `jfs-meta-redis` metadata service (already running). The compose file ships a commented-out `minio` service as a fully self-hosted alternative to Cloudflare R2 — uncomment it, then set in `apps/api/.env`:
 
-    ```yaml
-    web:
-      container_name: gaia-web
-      build: ./apps/web
-      ports:
-        - "3000:3000"
-      environment:
-        - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+    ```bash
+    JFS_BUCKET_URL=http://minio:9000/gaia-workspace
+    R2_ACCESS_KEY=gaia-minio
+    R2_SECRET_KEY=change-me-minio-secret
+    # Only for the genuine first boot of a fresh volume — remove after.
+    JUICEFS_ALLOW_FORMAT=1
     ```
 
+    Without an object store configured, the backend still boots and chat works — workspace features (uploads, artifacts, skill installs) degrade and log `JuiceFSUnavailable`. See [Persistent Workspace Storage](#persistent-workspace-storage-juicefs-and-fuse) below for the full FUSE mechanics.
   </Accordion>
 
-  <Accordion icon="server" title="Backend (gaia-backend)">
-    **FastAPI Python Application** 
-    - Port: 8000 
-    - Auto-reload enabled in development 
-    - RESTful API and WebSocket support 
-    
-    ```yaml 
-    gaia-backend:
-      container_name: gaia-backend
-      build: ./apps/api
-      ports:
-        - "8000:80"
-      command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--reload"]
+  <Accordion icon="magnifying-glass" title="SearXNG secret">
+    `searxng` ships with a placeholder secret (`SEARXNG_SECRET=selfhost-change-me`) suitable for local use only. Set your own in `infra/docker/.env` before exposing the stack beyond localhost:
+
+    ```bash
+    SEARXNG_SECRET=$(openssl rand -hex 32)
     ```
   </Accordion>
 
-  <Accordion icon="database" title="Databases">
-    **PostgreSQL** (Port: 5432)
-    - Stores user data and application state
-    - User: postgres, Password: postgres, DB: langgraph
+  <Accordion icon="microphone" title="Voice profile">
+    `voice-agent-worker` is opt-in via a Compose profile and needs three vendor credentials in `apps/api/.env`: `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`, `DEEPGRAM_API_KEY` (speech-to-text), and `ELEVENLABS_API_KEY` (text-to-speech).
 
-    **MongoDB** (Port: 27017)
-    - Document storage and metadata
-    - No authentication in development
-
-    **Redis** (Port: 6379)
-    - Caching and session storage
-    - No authentication in development
-
-    **ChromaDB** (Port: 8080)
-    - Vector database for embeddings
-    - Persistent storage in Docker volume
-
+    ```bash
+    docker compose -f docker-compose.selfhost.yml --profile voice up -d
+    ```
   </Accordion>
 
-  <Accordion title="Background Workers">
-    **Worker** - Handles scheduled tasks and background processing
-    **ARQ Worker** - Async task queue processing
-    **RabbitMQ** - Message broker (Port: 5672, Management: 15672)
+  <Accordion icon="robot" title="Chat bots (Discord, Slack, Telegram, WhatsApp, iMessage)">
+    The bot processes are **not** part of `docker-compose.selfhost.yml` — they run as separate Node processes under `apps/bots/`, outside this Compose stack entirely. Self-hosting a bot means running that process yourself (see `apps/bots/<platform>/`) and pointing it at your `gaia-backend`; there's no one-line Compose service for it today.
+  </Accordion>
+
+  <Accordion icon="envelope" title="SMTP email">
+    Self-host alternative to Resend — sends outbound email through any STARTTLS-capable relay:
+
+    ```bash
+    EMAIL_PROVIDER=smtp
+    SMTP_HOST=
+    SMTP_PORT=587
+    SMTP_USERNAME=
+    SMTP_PASSWORD=
+    SMTP_FROM=GAIA <no-reply@example.com>
+    ```
+  </Accordion>
+
+  <Accordion icon="server" title="Custom LLM endpoint">
+    Point the main chat lane at your own OpenAI/OpenRouter-compatible model server (vLLM, Ollama's OpenAI API, an alternate OpenRouter-compatible provider) instead of OpenRouter. All three must be set together:
+
+    ```bash
+    LLM_BASE_URL=https://your-inference-endpoint/v1
+    LLM_API_KEY=
+    LLM_MODEL_NAME=your-model-id
+    ```
+
+    Auxiliary tasks (follow-ups, workflow generation) still use OpenRouter, and memory embeddings still need `GOOGLE_API_KEY`.
+  </Accordion>
+
+  <Accordion icon="plug" title="Composio integrations (Gmail, Notion, Slack, ...)">
+    By default every integration uses the vendor's shared Composio auth configs. Override any of them with your own, so users authorize through your own OAuth app instead:
+
+    ```bash
+    COMPOSIO_AUTH_CONFIGS={"gmail": "ac_yourGmailCfg", "googlecalendar": "ac_..."}
+    ```
+
+    See [Integrations](/self-hosting/integrations) for the full per-integration walkthrough.
   </Accordion>
 </AccordionGroup>
 
 ## Persistent Workspace Storage (JuiceFS and FUSE)
 
-GAIA's per-user workspace (file uploads, agent artifacts, installed skills) is backed by [JuiceFS](https://juicefs.com), a filesystem that stores file **data** in object storage (Cloudflare R2, S3, or any S3-compatible store) and file **metadata** in a database. The backend mounts it at `/mnt/jfs` and reads and writes files there like a local disk.
+GAIA's per-user workspace (file uploads, agent artifacts, installed skills) is backed by [JuiceFS](https://juicefs.com), a filesystem that stores file **data** in object storage (Cloudflare R2, S3, or any S3-compatible store — including the bundled MinIO example above) and file **metadata** in `jfs-meta-redis`. The backend mounts it at `/mnt/jfs` and reads and writes files there like a local disk.
 
 JuiceFS mounts through **FUSE** (Filesystem in Userspace), a Linux kernel feature. This has direct consequences for where and how you can run the backend.
 
@@ -209,7 +246,7 @@ Because the mount needs Linux FUSE, run the backend in a container on every plat
 | macOS | Not supported (no Linux FUSE) | Works, Docker Desktop's Linux VM provides `/dev/fuse` |
 | Windows | Not supported (no Linux FUSE) | Works, Docker Desktop / WSL2 provides `/dev/fuse` |
 
-The self-host Compose stack already runs the backend in a container, so all three platforms are covered. The native path is a development-only convenience on Linux.
+The self-host Compose stack already runs the backend in a container, so all three platforms are covered.
 
 <Note>
 Run the backend in a container even on macOS and Windows. Docker Desktop runs a Linux VM that exposes `/dev/fuse`, so the FUSE mount works inside the container even though the host OS cannot mount it directly.
@@ -222,21 +259,19 @@ FUSE lets a userspace program act as a filesystem instead of the kernel:
 1. The kernel exposes a device at `/dev/fuse`.
 2. The `juicefs mount` process opens that device and attaches itself as the driver for `/mnt/jfs`.
 3. When the backend reads or writes a path under `/mnt/jfs`, the kernel routes the call to the JuiceFS process.
-4. JuiceFS looks up metadata in its database, fetches or stores the file's chunks in object storage, and serves the result back through `/dev/fuse`.
+4. JuiceFS looks up metadata in `jfs-meta-redis`, fetches or stores the file's chunks in object storage, and serves the result back through `/dev/fuse`.
 
 The backend never sees any of this, it just reads and writes files under `/mnt/jfs`.
 
 ### Container settings that make it work
 
-A Docker container is unprivileged by default: it cannot mount filesystems, cannot see host devices, and runs under an AppArmor profile that blocks `mount`. The Compose file grants exactly what FUSE needs and nothing more:
+A Docker container is unprivileged by default: it cannot mount filesystems, cannot see host devices, and runs under an AppArmor profile that blocks `mount`. The real `gaia-backend` block grants exactly what FUSE needs and nothing more:
 
 ```yaml
 gaia-backend:
   environment:
-    # Where the backend expects the mount. Must match the mountpoint.
     JUICEFS_HOST_MOUNT_PATH: /mnt/jfs
-    # FUSE filesystems can't be watched with inotify, so artifact
-    # detection tails the JuiceFS access log instead.
+    JUICEFS_META_URL_TEMPLATE: redis://jfs-meta-redis:6379/{shard}
     ARTIFACT_DETECTION_MODE: accesslog
   cap_add:
     - SYS_ADMIN # the mount() syscall requires this capability
@@ -269,14 +304,14 @@ Avoid `privileged: true` as a shortcut. It grants every capability and device to
 
 ### Required configuration
 
-The container settings make a mount *possible*. JuiceFS still needs an object store and a metadata database before it will mount. Set these in `apps/api/.env`:
+The container settings make a mount *possible*. JuiceFS still needs an object store before it will mount. Set these in `apps/api/.env`, or see [Optional Features](#optional-features) above for the bundled MinIO alternative:
 
 | Variable | Purpose |
 | --- | --- |
 | `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY`, `R2_SECRET_KEY` | Cloudflare R2 (or S3-compatible) object store for file data |
-| `JUICEFS_META_URL_TEMPLATE` | Connection URL for the metadata database (a PostgreSQL DB works well) |
+| `JFS_BUCKET_URL` | Full S3-compatible endpoint URL — set instead of `R2_ACCOUNT_ID`/`R2_BUCKET` to point at any generic S3 bucket, e.g. MinIO |
 
-Until both are configured, the backend starts normally and chat works, but workspace features (uploads, artifacts, skill installs) degrade and log `JuiceFSUnavailable`. See [Environment Variables](/configuration/environment-variables) for the full list.
+Until one of these is configured, the backend starts normally and chat works, but workspace features (uploads, artifacts, skill installs) degrade and log `JuiceFSUnavailable`. See [Environment Variables](/configuration/environment-variables) for the full list.
 
 ## Docker Commands
 
@@ -284,138 +319,100 @@ Until both are configured, the backend starts normally and chat works, but works
 
 ```bash
 # Start all services
-docker compose up -d
+docker compose -f docker-compose.selfhost.yml up -d
 
-# Start specific services
-docker compose up -d gaia-backend postgres redis
+# Stop all services (keeps data volumes)
+docker compose -f docker-compose.selfhost.yml down
 
-# Stop all services
-docker compose down
-
-# Stop and remove volumes (⚠️ deletes data)
-docker compose down -v
+# Stop and remove volumes (⚠️ deletes all data — back up first, see Upgrading)
+docker compose -f docker-compose.selfhost.yml down -v
 ```
 
 ### Viewing Logs
 
 ```bash
-# View logs for all services
-docker compose logs -f
+# All services
+docker compose -f docker-compose.selfhost.yml logs -f
 
-# View logs for specific service
-docker compose logs -f gaia-backend
+# One service
+docker compose -f docker-compose.selfhost.yml logs -f gaia-backend
 
-# View logs with timestamps
-docker compose logs -f -t
-
-# View last 100 lines
-docker compose logs --tail=100 gaia-backend
+# Last 100 lines
+docker compose -f docker-compose.selfhost.yml logs --tail=100 gaia-backend
 ```
 
 ### Service Management
 
 ```bash
-# Restart a service
-docker compose restart gaia-backend
+# Restart a service (e.g. after changing infra/docker/.env)
+docker compose -f docker-compose.selfhost.yml up -d gaia-web
 
-# Rebuild and restart a service
-docker compose up -d --build gaia-backend
+# Rebuild and restart after pulling new code
+docker compose -f docker-compose.selfhost.yml up -d --build gaia-backend
 
-# Execute commands in running container
-docker compose exec gaia-backend bash
-docker compose exec postgres psql -U postgres -d langgraph
+# Shell into a running container
+docker compose -f docker-compose.selfhost.yml exec gaia-backend bash
+docker compose -f docker-compose.selfhost.yml exec mongo mongosh
 
 # Check service status
-docker compose ps
+docker compose -f docker-compose.selfhost.yml ps
 ```
 
-## Development Mode
-
-For development, use the default `docker-compose.yml`:
-
-```bash
-# Start with hot reload
-docker compose up -d
-
-# View real-time logs
-docker compose logs -f gaia-backend frontend
-```
-
-**Development Features:**
-
-- Hot reload for both frontend and backend
-- Source code mounted as volumes
-- Debug logging enabled
-- Development databases with default credentials
-
-## Health Checks
-
-All services include health checks. Monitor service health:
-
-```bash
-# Check health status
-docker compose ps
-
-# Services with health checks:
-# ✓ gaia-backend - HTTP health endpoint
-# ✓ postgres - pg_isready
-# ✓ redis - redis-cli ping
-# ✓ mongo - mongosh ping
-# ✓ chromadb - TCP connection check
-# ✓ rabbitmq - rabbitmqctl status
-```
+<Note>
+For a full code + data upgrade (git pull, rebuild, run migrations, restart), use `gaia update` or its manual equivalent — see [Upgrading](/self-hosting/upgrading). The commands above are for day-to-day service management, not upgrades.
+</Note>
 
 ## Data Persistence
 
-Data is persisted using Docker volumes:
+Data is persisted using Docker named volumes, scoped under the `gaia-selfhost` Compose project:
 
 ```bash
-# View volumes
-docker volume ls | grep gaia
-
-# Backup a volume
-docker run --rm -v gaia-dev_pgdata:/data -v $(pwd):/backup alpine tar czf /backup/postgres-backup.tar.gz -C /data .
-
-# Restore a volume
-docker run --rm -v gaia-dev_pgdata:/data -v $(pwd):/backup alpine tar xzf /backup/postgres-backup.tar.gz -C /data
+docker volume ls | grep gaia-selfhost
 ```
 
-**Volume Locations:**
+| Volume | Holds |
+| --- | --- |
+| `mongo_data` | MongoDB — the primary document store |
+| `pgdata` | PostgreSQL — LangGraph checkpoint state |
+| `redis_data` | Redis cache |
+| `jfs_meta_data` | JuiceFS metadata (`jfs-meta-redis`) |
+| `chroma_data` | ChromaDB vectors |
+| `rabbitmq_data` | RabbitMQ messages |
+| `juicefs_cache` | Local JuiceFS chunk cache (speed only, not authoritative) |
+| `embedding_models` | Cached embedding model weights |
 
-- `pgdata` - PostgreSQL data
-- `mongo_data` - MongoDB data
-- `redis_data` - Redis data
-- `chroma_data` - ChromaDB vectors
-- `rabbitmq_data` - RabbitMQ messages
+See [Upgrading](/self-hosting/upgrading) for backup and restore commands — the correct ones for this project name and database, verified against a running stack.
 
 ## Networking
 
 Services communicate through the `gaia_network` bridge network:
 
 ```bash
-# Inspect network
-docker network inspect gaia-dev_gaia_network
-
-# Services can reach each other by container name:
-# - gaia-backend → postgres:5432
-# - gaia-backend → redis:6379
-# - gaia-backend → chromadb:8000
+docker network inspect gaia-selfhost_gaia_network
 ```
+
+Services reach each other by container name — for example, `gaia-backend` talks to `mongo:27017`, `redis:6379`, and `chromadb:8000` over this network, never over `localhost`.
 
 ## Troubleshooting
 
 <AccordionGroup>
   <Accordion icon="triangle-exclamation" title="Logs show JuiceFSUnavailable">
     The backend can't reach the workspace mount. Check, in order:
-    - **Object store and metadata are configured**: `R2_*` and `JUICEFS_META_URL_TEMPLATE` must be set in `apps/api/.env`. Without them JuiceFS never mounts.
+    - **Object store is configured**: `R2_*` or `JFS_BUCKET_URL` must be set in `apps/api/.env`. Without them JuiceFS never mounts.
     - **FUSE settings are present**, confirm `cap_add: SYS_ADMIN`, `devices: /dev/fuse`, and `security_opt: apparmor:unconfined` are on `gaia-backend` and `arq_worker`.
-    - **The mount came up**, run `docker compose exec gaia-backend mountpoint /mnt/jfs`. A non-zero result means the mount failed; check `docker compose logs gaia-backend` for the JuiceFS error.
+    - **The mount came up**, run `docker compose -f docker-compose.selfhost.yml exec gaia-backend mountpoint /mnt/jfs`. A non-zero result means the mount failed; check `docker compose -f docker-compose.selfhost.yml logs gaia-backend` for the JuiceFS error.
   </Accordion>
   <Accordion icon="microchip" title="fusermount3: cannot open /dev/fuse">
     The FUSE device isn't reaching the container. Confirm the `devices: /dev/fuse:/dev/fuse` mapping is present. On a Linux host, verify the device exists with `ls -l /dev/fuse` and load the module if missing: `sudo modprobe fuse`. On macOS and Windows, make sure Docker Desktop is running (it provides the device from its Linux VM).
   </Accordion>
   <Accordion icon="lock" title="Mount fails with permission denied">
     The container holds the capability but the host's security profile is blocking the mount. Confirm `security_opt: apparmor:unconfined` is set. On SELinux hosts, you may also need to allow the mount in your local policy.
+  </Accordion>
+  <Accordion icon="circle-exclamation" title="Compose fails immediately with an .env error">
+    `apps/api/.env` is missing — every service in this compose file reads it via `env_file`. Run `cp apps/api/.env.example apps/api/.env`, fill in the [minimum set of variables](#quick-start), and try again.
+  </Accordion>
+  <Accordion icon="stop" title="A one-shot service shows a nonzero exit code">
+    `run-migrations` or a `seed-*` service failing is not the same as the stack being broken — dependent services (`gaia-backend`, `arq_worker`) refuse to start until it succeeds, by design. Check its logs (`docker compose -f docker-compose.selfhost.yml logs <service>`), fix the underlying cause, then re-run just that service: `docker compose -f docker-compose.selfhost.yml up <service>`.
   </Accordion>
 </AccordionGroup>
 
@@ -425,12 +422,15 @@ For a simplified setup experience with automatic configuration, see the [CLI Set
 
 ## Next Steps
 
-<CardGroup cols={1}>
+<CardGroup cols={2}>
   <Card
     title="Environment Variables"
     icon="gear"
     href="/configuration/environment-variables"
   >
     Configure your API keys and settings
+  </Card>
+  <Card title="Upgrading" icon="arrows-rotate" href="/self-hosting/upgrading">
+    Pull a newer version, run migrations, back up first
   </Card>
 </CardGroup>

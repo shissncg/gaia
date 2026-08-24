@@ -257,6 +257,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      run-migrations:
+        condition: service_completed_successfully
       seed-models:
         condition: service_completed_successfully
       seed-plans:
@@ -361,10 +363,46 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      run-migrations:
+        condition: service_completed_successfully
       seed-models:
         condition: service_completed_successfully
       seed-plans:
         condition: service_completed_successfully
+    networks:
+      - gaia_network
+
+  # Ordered Mongo migration runner — GAIA.applied_migrations is the ledger, so
+  # a repeat `up run-migrations` is a full skip. Runs before every seed and
+  # before the app/worker boot so the ARQ worker can never race a scheduler
+  # repair (see apps/api/scripts/run_migrations.py for the registry).
+  run-migrations:
+    container_name: run-migrations
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      PYTHONPATH: /app/apps/api
+      # Self-host runs development-mode settings on purpose: ENV=production
+      # requires the vendor's full SaaS key ring (see ProductionSettings) and
+      # forces Infisical. Security posture that matters (cookie Secure flag,
+      # /docs exposure) is decoupled from ENV — see phase 2.
+      ENV: development
+      # In-stack infra container hostnames — see gaia-backend for why.
+      MONGO_DB: mongodb://mongo:27017/
+      REDIS_URL: redis://redis:6379/0
+    # Same reason as arq_worker: drop the `uv run` wrapper so we don't hit
+    # the Permission denied on /app/uv.lock as appuser.
+    command: ["python", "scripts/run_migrations.py"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
     networks:
       - gaia_network
 
@@ -390,6 +428,8 @@ services:
     # the Permission denied on /app/uv.lock as appuser.
     command: ["python", "scripts/seed_models.py", "--force"]
     depends_on:
+      run-migrations:
+        condition: service_completed_successfully
       mongo:
         condition: service_healthy
       redis:
@@ -420,6 +460,8 @@ services:
     # the Permission denied on /app/uv.lock as appuser.
     command: ["python", "scripts/payment_setup.py", "--selfhost"]
     depends_on:
+      run-migrations:
+        condition: service_completed_successfully
       mongo:
         condition: service_healthy
       redis:
@@ -449,6 +491,8 @@ services:
     # container runs as appuser.
     command: ["python", "scripts/seed_explore_workflows.py", "--force", "--no-backup"]
     depends_on:
+      run-migrations:
+        condition: service_completed_successfully
       mongo:
         condition: service_healthy
     restart: "no"
@@ -475,6 +519,8 @@ services:
       CHROMADB_PORT: "8000"
     command: ["python", "scripts/populate_gaia_knowledge.py"]
     depends_on:
+      run-migrations:
+        condition: service_completed_successfully
       chromadb:
         condition: service_healthy
       mongo:
