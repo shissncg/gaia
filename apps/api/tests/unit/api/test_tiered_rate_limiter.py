@@ -316,6 +316,24 @@ class TestCheckAndIncrement:
             with pytest.raises(RateLimitExceededException):
                 await self.limiter.check_and_increment("user1", "chat_messages", PlanType.FREE)
 
+    async def test_self_hosted_bypasses_without_touching_redis_or_upsell(self) -> None:
+        """Self-hosted has no billing wall to enforce: the bypass sits before the
+        try/except so it also skips the upsell side effects, matching the
+        existing DEV_UNLIMITED_RATE_LIMITS bypass placement."""
+        from app.api.v1.middleware import tiered_rate_limiter as trl_module
+
+        def _explode(*a: object, **k: object) -> None:
+            raise AssertionError("schedule_limit_upsell must not be called")
+
+        with (
+            patch.object(trl_module.settings, "DEPLOYMENT_MODE", "self_hosted"),
+            patch.object(trl_module, "schedule_limit_upsell", side_effect=_explode),
+        ):
+            result = await self.limiter.check_and_increment("user1", "chat_messages", PlanType.FREE)
+
+        assert result == {}
+        self.limiter.redis.get.assert_not_awaited()
+
 
 # ---------------------------------------------------------------------------
 # _sync_usage_real_time

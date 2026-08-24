@@ -292,7 +292,7 @@ async def resolve_lane(
     if plan == PlanType.FREE:
         return _default_lane(), plan
 
-    if await _pro_monthly_budget_exhausted(user_id):
+    if settings.DEPLOYMENT_MODE != "self_hosted" and await _pro_monthly_budget_exhausted(user_id):
         log.warning(
             "pro_model_degraded",
             event_name="pro_model_degraded",

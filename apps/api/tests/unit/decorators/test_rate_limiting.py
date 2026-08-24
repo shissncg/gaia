@@ -408,6 +408,19 @@ class TestDailyCostBudget:
         assert "plan_required" not in raised.value.detail
         assert raised.value.detail["current_plan"] == PlanType.PRO.value
 
+    async def test_self_hosted_skips_the_budget_read_entirely(self) -> None:
+        """The operator pays their own LLM bill: no plan lookup, no Redis spend
+        read — the early return happens before either."""
+
+        def _explode(*a: object, **k: object) -> None:
+            raise AssertionError("get_cost must not be called in self_hosted mode")
+
+        with (
+            patch.object(rl.settings, "DEPLOYMENT_MODE", "self_hosted"),
+            patch("app.decorators.rate_limiting.get_cost", side_effect=_explode),
+        ):
+            await rl.enforce_daily_cost_budget("user-1", "chat_messages")
+
 
 class TestToolPlanLabelling:
     """Both of ``plan_label``'s call sites: the context stashed for the

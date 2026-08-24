@@ -265,6 +265,25 @@ class TestThreadingGaps:
 
 
 @pytest.mark.unit
+class TestSelfHostedDeployment:
+    async def test_self_hosted_never_binds_and_never_looks_up_a_plan(self) -> None:
+        """No cost budgets on a self-hosted box: the no-enforcement BudgetCheck,
+        without even the plan-derivation read the None-plan path would trigger."""
+        await _spend(get_daily_cost_budget_usd(PlanType.FREE))
+
+        with (
+            patch("app.services.cost_budget.settings.DEPLOYMENT_MODE", "self_hosted"),
+            patch(
+                "app.services.cost_budget.payment_service.get_cached_plan_type",
+                AsyncMock(side_effect=AssertionError("plan lookup must not happen")),
+            ),
+        ):
+            check = await get_budget_stop_reason(USER, None, REQUEST)
+
+        assert check == (None, None, None)
+
+
+@pytest.mark.unit
 class TestWrapupThreshold:
     """The soft nudge fires strictly inside the headroom the hard wall leaves.
 

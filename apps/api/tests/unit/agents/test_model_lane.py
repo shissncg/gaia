@@ -187,6 +187,26 @@ class TestMonthlyEconomicGuard:
     async def test_a_user_under_the_guard_is_never_degraded(self) -> None:
         assert (await _resolve(PlanType.PRO, over_budget=False)).model == PAID_MODEL_NAME
 
+    async def test_self_hosted_never_checks_the_monthly_guard(self) -> None:
+        """The operator pays their own LLM bill: the $25/month degrade never
+        applies on a self-hosted box, and the spend read never even happens."""
+
+        async def _pro(user_id: str) -> PlanType:
+            return PlanType.PRO
+
+        async def _explode(user_id: str) -> bool:
+            raise AssertionError("_pro_monthly_budget_exhausted must not be called")
+
+        with (
+            patch.object(lane_module.settings, "DEPLOYMENT_MODE", "self_hosted"),
+            patch.object(lane_module.payment_service, "get_cached_plan_type", _pro),
+            patch.object(lane_module, "_pro_monthly_budget_exhausted", _explode),
+        ):
+            resolved, plan = await resolve_lane(USER, AgentRole.COMMS)
+
+        assert resolved.model == PAID_MODEL_NAME
+        assert plan == PlanType.PRO
+
 
 def _spend(amount: float) -> Any:
     """Patch the spend read with THIS month's cost for THIS user.
