@@ -1459,6 +1459,51 @@ class TestExecuteWorkflowByIdNotifications:
         assert call_kwargs["conversation_id"] == "conv_123"
 
 
+class TestRateLimitFailureContentSelfHosted:
+    """Self-hosted has no billing: the blocked-run notification must not pitch
+    an upgrade, independent of ``schedule_limit_upsell`` — this copy is built
+    straight from the exception detail, not through that seam."""
+
+    async def test_self_hosted_drops_the_pitch_and_the_action(self) -> None:
+        from app.workers.tasks import workflow_tasks as workflow_tasks_module
+
+        workflow = _make_workflow()
+        error = RateLimitExceededException(
+            feature="trigger_workflow_executions",
+            plan_required="pro",
+            reset_time=datetime(2026, 3, 21, 12, 0, 0, tzinfo=UTC),
+            current_plan="free",
+        )
+
+        with patch.object(workflow_tasks_module.settings, "DEPLOYMENT_MODE", "self_hosted"):
+            body, upgrade_action = await workflow_tasks_module._rate_limit_failure_content(
+                error, workflow
+            )
+
+        assert "Upgrade" not in body
+        assert upgrade_action is None
+
+    async def test_cloud_mode_still_pitches_a_free_user(self) -> None:
+        """Sanity check: the cloud behavior this test suite protects."""
+        from app.workers.tasks import workflow_tasks as workflow_tasks_module
+
+        workflow = _make_workflow()
+        error = RateLimitExceededException(
+            feature="trigger_workflow_executions",
+            plan_required="pro",
+            reset_time=datetime(2026, 3, 21, 12, 0, 0, tzinfo=UTC),
+            current_plan="free",
+        )
+
+        with patch.object(workflow_tasks_module.settings, "DEPLOYMENT_MODE", "cloud"):
+            body, upgrade_action = await workflow_tasks_module._rate_limit_failure_content(
+                error, workflow
+            )
+
+        assert "Upgrade to Pro" in body
+        assert upgrade_action is not None
+
+
 # ---------------------------------------------------------------------------
 # process_workflow_generation_task — additional coverage
 # ---------------------------------------------------------------------------

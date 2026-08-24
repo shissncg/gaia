@@ -18,16 +18,26 @@ from typing import Final
 from app.agents.prompts.comms_prompts import (
     COMMS_AGENT_PROMPT,
     EXECUTOR_AGENT_PROMPT,
+    _strip_billing_section,
     _strip_openui_section,
 )
 from app.agents.prompts.openui_prompts import OPENUI_INSTRUCTIONS
-from app.agents.workspace.operational_docs import GAIA_CORE
+from app.agents.workspace.operational_docs import get_core
+from app.config.settings import settings
 
 # Base comms prompt with the embedded OpenUI component-instructions section
 # stripped out, so the per-channel addendum below is the single source of
-# truth for output format. Pre-computed once at import so the bytes stay
-# stable per channel (cache-friendly).
-_COMMS_AGENT_PROMPT_BASE: Final[str] = _strip_openui_section(COMMS_AGENT_PROMPT)
+# truth for output format. Self-hosted deployments additionally lose the
+# billing/subscription section — no billing tools are registered there (see
+# registry._initialize_categories). Pre-computed once at import so the bytes
+# stay stable per channel (cache-friendly); DEPLOYMENT_MODE is fixed for the
+# lifetime of the process, so this never needs to vary per request.
+_COMMS_AGENT_PROMPT_OPENUI_STRIPPED: Final[str] = _strip_openui_section(COMMS_AGENT_PROMPT)
+_COMMS_AGENT_PROMPT_BASE: Final[str] = (
+    _strip_billing_section(_COMMS_AGENT_PROMPT_OPENUI_STRIPPED)
+    if settings.DEPLOYMENT_MODE == "self_hosted"
+    else _COMMS_AGENT_PROMPT_OPENUI_STRIPPED
+)
 
 
 # Output-format addendum for renderable channels (web, mobile, desktop).
@@ -126,9 +136,10 @@ def get_comms_static_prompt(source: str | None) -> str:
 # ``get_comms_static_prompt``.
 COMMS_PROMPT_TEMPLATE: Final[str] = COMMS_PROMPT_DEFAULT
 
-# The executor's static prefix carries the always-on operating core (GAIA_CORE):
-# user-independent self-knowledge + the self-management capability menu + the
-# read_manual topic routing. It is appended here (not interpolated per user) so
-# the whole executor prompt stays byte-identical across users and rides the
-# provider's prompt cache.
-EXECUTOR_PROMPT_TEMPLATE: Final[str] = EXECUTOR_AGENT_PROMPT + "\n\n" + GAIA_CORE
+# The executor's static prefix carries the always-on operating core
+# (get_core(): GAIA_CORE, minus the billing routing on self-hosted
+# deployments): user-independent self-knowledge + the self-management
+# capability menu + the read_manual topic routing. It is appended here (not
+# interpolated per user) so the whole executor prompt stays byte-identical
+# across users and rides the provider's prompt cache.
+EXECUTOR_PROMPT_TEMPLATE: Final[str] = EXECUTOR_AGENT_PROMPT + "\n\n" + get_core()

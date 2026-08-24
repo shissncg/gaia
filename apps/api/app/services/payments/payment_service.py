@@ -46,6 +46,15 @@ class DodoPaymentService:
     """Streamlined Dodo Payments service."""
 
     def __init__(self) -> None:
+        self.client: DodoPayments | None = None
+
+        if settings.DEPLOYMENT_MODE == "self_hosted" or not settings.DODO_PAYMENTS_API_KEY:
+            log.info(
+                f"{LogTag.PAYMENT} Dodo client not constructed — "
+                f"{'self-hosted deployment' if settings.DEPLOYMENT_MODE == 'self_hosted' else 'no API key configured'}"
+            )
+            return
+
         try:
             environment: Literal["live_mode", "test_mode"] = (
                 "live_mode" if settings.ENV == "production" else "test_mode"
@@ -72,6 +81,18 @@ class DodoPaymentService:
                 error=str(e),
                 error_type=type(e).__name__,
             )
+
+    def _require_client(self) -> DodoPayments:
+        """The Dodo SDK client, or a clear error when payments are disabled.
+
+        Every ``self.client``-touching method (other than ``get_payment_history``,
+        which degrades to an empty list) must call this instead of using
+        ``self.client`` directly — an unguarded ``None`` dies as an
+        ``AttributeError`` far from the real cause.
+        """
+        if self.client is None:
+            raise RuntimeError("Payments are disabled on this deployment (no Dodo client)")
+        return self.client
 
     async def get_plans(self, active_only: bool = True) -> list[PlanResponse]:
         """Get subscription plans with caching."""
@@ -170,7 +191,7 @@ class DodoPaymentService:
             # The Dodo SDK's client is synchronous — run it off the event loop so a
             # slow HTTP round-trip doesn't stall other requests.
             checkout_session = await asyncio.to_thread(
-                self.client.checkout_sessions.create, **params
+                self._require_client().checkout_sessions.create, **params
             )
         except Exception as e:
             log.error(
@@ -225,7 +246,7 @@ class DodoPaymentService:
             # The Dodo SDK's client is synchronous — run it off the event loop
             # so a slow HTTP round-trip doesn't stall other requests.
             updated = await asyncio.to_thread(
-                self.client.subscriptions.update,
+                self._require_client().subscriptions.update,
                 subscription.dodo_subscription_id,
                 cancel_at_next_billing_date=True,
             )
@@ -298,6 +319,22 @@ class DodoPaymentService:
 
     async def get_user_subscription_status(self, user_id: str) -> UserSubscriptionStatus:
         """Get user subscription status."""
+        if settings.DEPLOYMENT_MODE == "self_hosted":
+            # is_subscribed=True is deliberate: every "upgrade" surface in the
+            # web app keys on it, so self-host hides them without a web change.
+            return UserSubscriptionStatus(
+                user_id=user_id,
+                current_plan=None,
+                subscription=None,
+                is_subscribed=True,
+                days_remaining=None,
+                can_upgrade=False,
+                can_downgrade=False,
+                has_subscription=False,
+                plan_type=PlanType.PRO,
+                status=SubscriptionStatus.ACTIVE,
+            )
+
         subscription = await subscription_repository.get_active_for_user(user_id)
 
         if not subscription:
@@ -417,6 +454,14 @@ class DodoPaymentService:
         reads ``payments.list`` for every subscription the user has ever had,
         including cancelled and expired ones.
         """
+        if self.client is None:
+            # No Dodo client (self-hosted, or no API key configured) — there is
+            # no ledger to read. Unlike the other client-touching methods this
+            # degrades to an empty list rather than raising: a subscriber-less
+            # deployment having no payment history is a normal answer, not an
+            # error its callers need to handle.
+            return []
+
         subscriptions = await subscription_repository.list_for_user(user_id)
         dodo_ids = [sub.dodo_subscription_id for sub in subscriptions if sub.dodo_subscription_id]
         if not dodo_ids:
@@ -477,6 +522,11 @@ class DodoPaymentService:
 
     async def get_cached_plan_type(self, user_id: str) -> PlanType:
         """Plan tier, Redis-cached for hot paths; eventually consistent within the TTL."""
+        # Self-hosted deployments have no billing: every user is PRO by fiat.
+        # Short-circuit before Redis so the plan cache is never even consulted.
+        if settings.DEPLOYMENT_MODE == "self_hosted":
+            return PlanType.PRO
+
         cache_key = f"{SUBSCRIPTION_PLAN_CACHE_PREFIX}{user_id}"
         cached = await redis_cache.get(cache_key)
         if isinstance(cached, dict) and cached.get("plan_type"):

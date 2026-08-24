@@ -22,6 +22,7 @@ from app.config.rate_limits import (
     RateLimitPeriod,
     get_reset_time,
 )
+from app.config.settings import settings
 from app.constants.log_tags import LogTag
 from app.core.request_context import get_authenticated_user
 from app.models.payment_models import PlanType
@@ -384,7 +385,14 @@ class LangChainRateLimitException(Exception):
         # A wall with no way past it reads as a dead end, so a free user's limit
         # message names the tool that mints their checkout link. The agent decides
         # whether an upsell fits the moment — no link is created unless it does.
-        if self.detail.get("current_plan") == PlanType.FREE.value:
+        # Self-hosted deployments have no billing tools (see
+        # registry._initialize_categories), so the copy must never sell an
+        # upgrade nobody can buy — this is rare after the 4.2 walls (self-host
+        # plan is always PRO) but not impossible for a non-plan abuse limit.
+        if (
+            self.detail.get("current_plan") == PlanType.FREE.value
+            and settings.DEPLOYMENT_MODE != "self_hosted"
+        ):
             message += (
                 " This user is on the free plan: offer to upgrade them and call "
                 "`create_upgrade_link` for a checkout link if they want it."
@@ -423,6 +431,10 @@ async def enforce_daily_cost_budget(
     ``feature_key`` names the surface being blocked (e.g. ``chat_messages``,
     ``trigger_workflow_executions``) for the 429 payload and reset copy.
     """
+    # Self-hosted: no cost budgets — the operator pays their own LLM bill.
+    if settings.DEPLOYMENT_MODE == "self_hosted":
+        return
+
     origin = origin or current_limit_origin()
     plan_type = await payment_service.get_cached_plan_type(user_id)
     # The tier this request was priced against, on the wide event — this gate is
