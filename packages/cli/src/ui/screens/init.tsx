@@ -439,12 +439,14 @@ export const InfisicalSetupStep: React.FC<{
     INFISICAL_PROJECT_ID: string;
     INFISICAL_MACHINE_IDENTITY_CLIENT_ID: string;
     INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET: string;
+    INFISICAL_HOST: string;
   }) => void;
 }> = ({ onSubmit }) => {
   const [values, setValues] = useState({
     INFISICAL_PROJECT_ID: "",
     INFISICAL_MACHINE_IDENTITY_CLIENT_ID: "",
     INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET: "",
+    INFISICAL_HOST: "",
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -453,14 +455,23 @@ export const InfisicalSetupStep: React.FC<{
     {
       key: "INFISICAL_PROJECT_ID" as const,
       description: "Found in your Infisical project settings",
+      optional: false,
     },
     {
       key: "INFISICAL_MACHINE_IDENTITY_CLIENT_ID" as const,
       description: "From Access Control → Machine Identities",
+      optional: false,
     },
     {
       key: "INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET" as const,
       description: "Generated when creating the machine identity",
+      optional: false,
+    },
+    {
+      key: "INFISICAL_HOST" as const,
+      description:
+        "URL of your Infisical instance — leave empty for Infisical Cloud (https://app.infisical.com)",
+      optional: true,
     },
   ];
 
@@ -476,11 +487,15 @@ export const InfisicalSetupStep: React.FC<{
         return;
       }
       // On last field, validate and submit
-      const missing = fields.filter((f) => !values[f.key].trim());
+      const missing = fields.filter(
+        (f) => !f.optional && !values[f.key].trim(),
+      );
       if (missing.length > 0) {
         setError(`Required: ${missing.map((f) => f.key).join(", ")}`);
         // Go to first missing field
-        const firstMissingIdx = fields.findIndex((f) => !values[f.key].trim());
+        const firstMissingIdx = fields.findIndex(
+          (f) => !f.optional && !values[f.key].trim(),
+        );
         if (firstMissingIdx >= 0) setActiveIndex(firstMissingIdx);
         return;
       }
@@ -514,11 +529,11 @@ export const InfisicalSetupStep: React.FC<{
       <Box marginBottom={1} flexDirection="column">
         <Text color="gray">Configure your Infisical credentials.</Text>
         <Text color="gray" dimColor>
-          Visit{" "}
+          Get these values from your Infisical instance (
           <Text color="cyan" underline>
             app.infisical.com
           </Text>{" "}
-          to get these values.
+          for Infisical Cloud).
         </Text>
       </Box>
 

@@ -1,11 +1,14 @@
 /**
  * Infisical secrets management for GAIA bots.
  *
+ * INFISICAL_HOST points the client at any Infisical instance (self-hosted,
+ * EU cloud, US cloud default). INFISICAL_ENV overrides the secrets-environment
+ * slug independently of ENV (defaults to ENV).
+ *
  * Resolution:
  * - If all Infisical env vars are set → fetch remote secrets
- * - If partially set → warn about incomplete config
- * - If none set in dev → skip (using local .env only)
- * - If none set in prod → throw (Infisical is required in production)
+ * - If partially set → warn in dev, throw in prod
+ * - If none set → skip (using local .env only), in every environment
  *
  * Local environment variables always take precedence over Infisical secrets.
  */
@@ -45,14 +48,8 @@ export async function injectInfisicalSecrets(): Promise<void> {
   const present = INFISICAL_VARS.filter((k) => !!process.env[k]);
   const missing = INFISICAL_VARS.filter((k) => !process.env[k]);
 
-  // No Infisical vars at all
+  // No Infisical vars at all — skip in every environment.
   if (present.length === 0) {
-    if (isProduction) {
-      throw new InfisicalConfigError(
-        "Infisical is required in production. " +
-          `Missing: ${INFISICAL_VARS.join(", ")}`,
-      );
-    }
     wideLog.setNs("infisical", { skipped: "no_config_vars_set" });
     return;
   }
@@ -80,7 +77,7 @@ export async function injectInfisicalSecrets(): Promise<void> {
   try {
     const start = Date.now();
     const client = new InfisicalSDK({
-      siteUrl: "https://app.infisical.com",
+      siteUrl: process.env.INFISICAL_HOST ?? "https://app.infisical.com",
     });
     await client.auth().universalAuth.login({ clientId, clientSecret });
     wideLog.setNs("infisical", { auth_ms: Date.now() - start });
@@ -88,7 +85,7 @@ export async function injectInfisicalSecrets(): Promise<void> {
     const secretsStart = Date.now();
     const result = await client.secrets().listSecrets({
       projectId,
-      environment: env,
+      environment: process.env.INFISICAL_ENV ?? env,
       secretPath: "/",
       expandSecretReferences: true,
       includeImports: true,
