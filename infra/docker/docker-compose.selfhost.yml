@@ -12,9 +12,12 @@ services:
       - PERSIST_DIRECTORY=/chroma/chroma
       - CHROMA_SERVER_HOST=0.0.0.0
       - CHROMA_SERVER_PORT=8000
+    # These datastores have no auth and hold all user data. Bind to loopback
+    # only — inter-container traffic uses the compose network and is
+    # unaffected; only host-external access is blocked.
     ports:
-      - "${CHROMADB_HOST_PORT:-8080}:8000"
-    restart: on-failure
+      - "127.0.0.1:${CHROMADB_HOST_PORT:-8080}:8000"
+    restart: unless-stopped
     healthcheck:
       test:
         ["CMD", "/bin/bash", "-c", "cat < /dev/null > /dev/tcp/localhost/8000"]
@@ -34,8 +37,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql
     ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
-    restart: on-failure
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres"]
       interval: 10s
@@ -48,10 +51,10 @@ services:
     image: redis:8-alpine
     container_name: redis
     ports:
-      - "${REDIS_HOST_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
-    restart: on-failure
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -65,9 +68,18 @@ services:
     container_name: mongo
     volumes:
       - mongo_data:/data/db
-    restart: on-failure
+    restart: unless-stopped
+    environment:
+      # Required for Linux kernel 7.x (6.19+): disables glibc rseq registration
+      # so TCMalloc's per-CPU caches don't conflict with the kernel's rseq ABI.
+      GLIBC_TUNABLES: glibc.pthread.rseq=0
+    security_opt:
+      # Required for Linux kernel 7.x: block rseq (ENOSYS) so TCMalloc falls
+      # back from per-CPU caches to a safe path. Using rseq on kernel 7.x causes
+      # a SIGSEGV in mongo:8's TCMalloc ~30s after startup (SERVER-121912).
+      - seccomp:seccomp-mongo.json
     ports:
-      - "${MONGO_HOST_PORT:-27017}:27017"
+      - "127.0.0.1:${MONGO_HOST_PORT:-27017}:27017"
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -80,11 +92,11 @@ services:
     image: rabbitmq:4.1.8-management
     container_name: rabbitmq
     ports:
-      - "${RABBITMQ_HOST_PORT:-5672}:5672"
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+      - "127.0.0.1:${RABBITMQ_HOST_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MGMT_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    restart: always
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
       interval: 30s
@@ -97,6 +109,7 @@ services:
 
   gaia-backend:
     container_name: gaia-backend
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
@@ -116,6 +129,11 @@ services:
       # JuiceFS is a FUSE mount; E2B's inotify watcher cannot watch a FUSE
       # filesystem, so artifact detection must tail the JuiceFS .accesslog.
       ARTIFACT_DETECTION_MODE: accesslog
+      # Self-host runs development-mode settings on purpose: ENV=production
+      # requires the vendor's full SaaS key ring (see ProductionSettings) and
+      # forces Infisical. Security posture that matters (cookie Secure flag,
+      # /docs exposure) is decoupled from ENV — see phase 2.
+      ENV: development
     ports:
       - "${API_HOST_PORT:-8000}:8000"
     # JuiceFS mounts via FUSE inside the container, which requires the mount
@@ -133,7 +151,7 @@ services:
       # Persist JuiceFS's local chunk cache so reads don't re-fetch from the
       # object store on every restart.
       - juicefs_cache:/var/cache/juicefs
-    restart: on-failure
+    restart: unless-stopped
     tty: true
     stdin_open: true
     depends_on:
@@ -147,6 +165,10 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      seed-models:
+        condition: service_completed_successfully
+      seed-plans:
+        condition: service_completed_successfully
     networks:
       - gaia_network
     healthcheck:
@@ -171,7 +193,7 @@ services:
       API_BASE_URL_INTERNAL: ${API_BASE_URL_INTERNAL:-http://gaia-backend:8000/api/v1/}
     ports:
       - "${WEB_HOST_PORT:-3000}:3000"
-    restart: on-failure
+    restart: unless-stopped
     depends_on:
       gaia-backend:
         condition: service_healthy
@@ -185,6 +207,7 @@ services:
 
   arq_worker:
     container_name: arq_worker
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
@@ -199,12 +222,17 @@ services:
       # needs the same JuiceFS mount as the backend.
       JUICEFS_HOST_MOUNT_PATH: /mnt/jfs
       ARTIFACT_DETECTION_MODE: accesslog
+      # Self-host runs development-mode settings on purpose: ENV=production
+      # requires the vendor's full SaaS key ring (see ProductionSettings) and
+      # forces Infisical. Security posture that matters (cookie Secure flag,
+      # /docs exposure) is decoupled from ENV — see phase 2.
+      ENV: development
     # Python deps are installed system-wide via UV_PROJECT_ENVIRONMENT=/usr/local
     # in the API Dockerfile, so call python directly. `uv run` would try to
     # rewrite /app/uv.lock and fail (Permission denied) under the non-root
     # appuser the runtime image switches to.
     command: ["python", "-m", "arq", "app.worker.WorkerSettings", "--custom-log-dict", "app.workers.config.log_config.ARQ_LOG_CONFIG"]
-    restart: always
+    restart: unless-stopped
     # Same FUSE requirements as gaia-backend (see that service for details).
     cap_add:
       - SYS_ADMIN
@@ -219,11 +247,18 @@ services:
         condition: service_healthy
       mongo:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+      seed-models:
+        condition: service_completed_successfully
+      seed-plans:
+        condition: service_completed_successfully
     networks:
       - gaia_network
 
   seed-models:
     container_name: seed-models
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
@@ -231,9 +266,41 @@ services:
       - ../../apps/api/.env
     environment:
       PYTHONPATH: /app/apps/api
+      # Self-host runs development-mode settings on purpose: ENV=production
+      # requires the vendor's full SaaS key ring (see ProductionSettings) and
+      # forces Infisical. Security posture that matters (cookie Secure flag,
+      # /docs exposure) is decoupled from ENV — see phase 2.
+      ENV: development
     # Same reason as arq_worker: drop the `uv run` wrapper so we don't hit
     # the Permission denied on /app/uv.lock as appuser.
     command: ["python", "scripts/seed_models.py", "--force"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - gaia_network
+
+  seed-plans:
+    container_name: seed-plans
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      PYTHONPATH: /app/apps/api
+      # Self-host runs development-mode settings on purpose: ENV=production
+      # requires the vendor's full SaaS key ring (see ProductionSettings) and
+      # forces Infisical. Security posture that matters (cookie Secure flag,
+      # /docs exposure) is decoupled from ENV — see phase 2.
+      ENV: development
+    # Same reason as arq_worker: drop the `uv run` wrapper so we don't hit
+    # the Permission denied on /app/uv.lock as appuser.
+    command: ["python", "scripts/payment_setup.py", "--selfhost"]
     depends_on:
       mongo:
         condition: service_healthy
