@@ -3,7 +3,10 @@ import localFont from "next/font/local";
 export const aeonik = localFont({
   src: [
     {
-      path: "./aeonik/AeonikExtendedProTRIAL-SemiBold.woff2",
+      // No trial-licensed weight-600 cut ships in this fork (see
+      // AeonikExtendedProTRIAL-SemiBold.woff2's removal) — the licensed Bold
+      // face covers both the 600 and 700 weight declarations below.
+      path: "./aeonik/AeonikExtendedPro-Bold.woff2",
       weight: "600",
       style: "normal",
     },
