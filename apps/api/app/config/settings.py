@@ -112,6 +112,13 @@ class CommonSettings(BaseAppSettings):
     # ----------------------------------------------
     # Environment & Deployment
     # ----------------------------------------------
+    # Cloud (heygaia.io) vs self-hosted deployment. Gates everything a
+    # self-hosted instance must not have: billing enforcement, plan-derived
+    # usage walls, upsell side effects, and the payments surface. The vendor's
+    # cloud deploys set DEPLOYMENT_MODE=cloud via their secret store; a fork
+    # defaults to self_hosted.
+    DEPLOYMENT_MODE: Literal["cloud", "self_hosted"] = "self_hosted"
+
     HOST: str = "https://api.heygaia.io"
     FRONTEND_URL: str = "https://heygaia.io"
     DUMMY_IP: str = "8.8.8.8"
