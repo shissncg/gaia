@@ -105,6 +105,37 @@ services:
     networks:
       - gaia_network
 
+  # ---------------------------------------------------------------------------
+  # SearXNG — self-hosted metasearch (search fallback; mirrors prod)
+  # ---------------------------------------------------------------------------
+  searxng:
+    # Pinned by digest for reproducible deploys (tag 2026.6.23); bump deliberately.
+    image: searxng/searxng@sha256:f66b296a6fdfe3f656a19e98ac999a9acffa780773e39b3cbbdf673e9c474deb
+    container_name: searxng
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng-template/settings.yml:ro
+    environment:
+      # Safe default; change for a production self-host deploy.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-selfhost-change-me}
+    # Copy the read-only template to a writable path before the image entrypoint
+    # (which injects $SEARXNG_SECRET) runs.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /etc/searxng
+        cp /etc/searxng-template/settings.yml /etc/searxng/settings.yml
+        exec /usr/local/searxng/entrypoint.sh
+    # Only the API needs to reach this — bind to loopback like the other
+    # datastores rather than exposing it on the LAN/public interface.
+    ports:
+      - "127.0.0.1:${SEARXNG_HOST_PORT:-8888}:8080"
+    networks:
+      - gaia_network
+    restart: unless-stopped
+    mem_limit: 600m
+    cpus: "1.0"
+
   # ─── Application ───
 
   gaia-backend:
@@ -129,6 +160,8 @@ services:
       # JuiceFS is a FUSE mount; E2B's inotify watcher cannot watch a FUSE
       # filesystem, so artifact detection must tail the JuiceFS .accesslog.
       ARTIFACT_DETECTION_MODE: accesslog
+      # Self-hosted SearXNG — the unlimited last-resort search fallback.
+      SEARXNG_BASE_URL: http://searxng:8080
       # Self-host runs development-mode settings on purpose: ENV=production
       # requires the vendor's full SaaS key ring (see ProductionSettings) and
       # forces Infisical. Security posture that matters (cookie Secure flag,
@@ -222,6 +255,8 @@ services:
       # needs the same JuiceFS mount as the backend.
       JUICEFS_HOST_MOUNT_PATH: /mnt/jfs
       ARTIFACT_DETECTION_MODE: accesslog
+      # Self-hosted SearXNG — the unlimited last-resort search fallback.
+      SEARXNG_BASE_URL: http://searxng:8080
       # Self-host runs development-mode settings on purpose: ENV=production
       # requires the vendor's full SaaS key ring (see ProductionSettings) and
       # forces Infisical. Security posture that matters (cookie Secure flag,
