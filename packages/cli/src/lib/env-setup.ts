@@ -49,6 +49,14 @@ export async function runEnvSetup(
     envValues[key] = value;
   }
 
+  // Selfhost only: ask what URL users will actually reach this deployment
+  // at, so HOST/FRONTEND_URL and the web container's runtime API URL aren't
+  // silently pinned to localhost on a real domain/tunnel deploy.
+  let publicApiUrl: string | undefined;
+  if (setupMode === "selfhost") {
+    publicApiUrl = await collectPublicUrls(store, envValues);
+  }
+
   if (envMethod === "infisical") {
     await collectInfisicalEnv(store, envValues);
     store.setStatus(
@@ -75,12 +83,28 @@ export async function runEnvSetup(
       envValues,
       setupMode,
       portOverrides,
+      publicApiUrl,
     );
   } catch (e) {
     store.setError(e as Error);
     return;
   }
   await delay(1000);
+}
+
+async function collectPublicUrls(
+  store: CLIStore,
+  envValues: Record<string, string>,
+): Promise<string> {
+  store.setStatus("Configuring public URLs...");
+  const publicUrls = (await store.waitForInput("env_public_urls")) as {
+    PUBLIC_WEB_URL: string;
+    PUBLIC_API_URL: string;
+  };
+
+  envValues["FRONTEND_URL"] = publicUrls.PUBLIC_WEB_URL;
+  envValues["HOST"] = publicUrls.PUBLIC_API_URL;
+  return publicUrls.PUBLIC_API_URL;
 }
 
 async function collectInfisicalEnv(
@@ -242,6 +266,7 @@ async function writeAllEnvFiles(
   envValues: Record<string, string>,
   setupMode: envParser.SetupMode,
   portOverrides?: Record<number, number>,
+  publicApiUrl?: string,
 ): Promise<void> {
   // Write API .env
   store.setStatus("Writing API environment file...");
@@ -256,7 +281,7 @@ async function writeAllEnvFiles(
   // Write web .env
   store.setStatus("Writing web environment file...");
   try {
-    envWriter.writeWebEnvFile(repoPath, setupMode, portOverrides);
+    envWriter.writeWebEnvFile(repoPath, setupMode, portOverrides, publicApiUrl);
     store.setStatus("Web environment variables configured!");
   } catch (e) {
     throw new Error(`Failed to write web .env file: ${(e as Error).message}`);
@@ -274,7 +299,12 @@ async function writeAllEnvFiles(
         // .env override only works after patching.
         envWriter.patchDockerComposePorts(repoPath);
       }
-      envWriter.writeDockerComposeEnv(repoPath, portOverrides ?? {}, setupMode);
+      envWriter.writeDockerComposeEnv(
+        repoPath,
+        portOverrides ?? {},
+        setupMode,
+        publicApiUrl,
+      );
       store.setStatus("Docker Compose environment configured!");
     } catch (e) {
       throw new Error(

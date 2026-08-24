@@ -51,7 +51,9 @@ const DEPLOYMENT_DEFAULTS: Record<SetupMode, Record<string, string>> = {
   selfhost: {
     HOST: "http://localhost:8000",
     FRONTEND_URL: "http://localhost:3000",
-    GAIA_BACKEND_URL: "http://gaia-backend:80",
+    // The selfhost container listens on 8000, not 80 — a stale value here
+    // would break the voice agent's reach to the API.
+    GAIA_BACKEND_URL: "http://gaia-backend:8000",
     SETUP_MODE: "selfhost",
   },
   developer: {
@@ -149,13 +151,23 @@ export function parseWebEnv(repoPath: string): WebEnvVar[] {
 export function getWebInfrastructureDefaults(
   _mode: SetupMode,
   portOverrides?: Record<number, number>,
+  publicApiUrl?: string,
 ): Record<string, string> {
-  const apiPort = portOverrides?.[8000] ?? 8000;
-
   // Single env var for the web app. WS URLs are derived from this at runtime
   // by swapping http:// -> ws:// (see useWebSocketConnection.ts).
-  // Always uses localhost because this is a browser-side (client) URL —
-  // even in selfhost mode the browser connects via Docker-mapped host ports.
+  //
+  // publicApiUrl is the URL a browser reaches the API at — set when the
+  // selfhost wizard's PublicUrlsStep collected a real domain/tunnel (see
+  // env-setup.ts). Without it, this is a browser-side (client) URL that
+  // defaults to localhost, since that's where a browser reaches the
+  // Docker-mapped host port on a purely local deployment.
+  if (publicApiUrl) {
+    return {
+      NEXT_PUBLIC_API_BASE_URL: `${publicApiUrl.replace(/\/+$/, "")}/api/v1/`,
+    };
+  }
+
+  const apiPort = portOverrides?.[8000] ?? 8000;
   return {
     NEXT_PUBLIC_API_BASE_URL: `http://localhost:${apiPort}/api/v1/`,
   };

@@ -20,6 +20,7 @@ import {
   EnvGroupConfigStep,
   EnvMethodSelectionStep,
   InfisicalSetupStep,
+  PublicUrlsStep,
   SetupModeSelectionStep,
 } from "./init.js";
 
@@ -86,6 +87,10 @@ export const SetupScreen: React.FC<{ store: CLIStore }> = ({ store }) => {
 
       {state.inputRequest?.id === "env_infisical" && (
         <InfisicalSetupStep onSubmit={(values) => store.submitInput(values)} />
+      )}
+
+      {state.inputRequest?.id === "env_public_urls" && (
+        <PublicUrlsStep onSubmit={(values) => store.submitInput(values)} />
       )}
 
       {state.step === "Environment Setup" &&
