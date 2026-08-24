@@ -137,6 +137,10 @@ class CommonSettings(BaseAppSettings):
     # Set to share the session across subdomains (e.g. ".example.com" when
     # web and API live on different subdomains). Leave unset for host-only.
     COOKIE_DOMAIN: str | None = None
+    # None = current behavior (docs exposed outside production). Set explicitly
+    # to decouple /docs exposure from ENV, e.g. a self-host running
+    # ENV=development on a public domain that wants EXPOSE_API_DOCS=false.
+    EXPOSE_API_DOCS: bool | None = None
     DUMMY_IP: str = "8.8.8.8"
     WORKER_TYPE: str = "unknown"
     ENABLE_LAZY_LOADING: bool = True
