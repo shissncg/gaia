@@ -121,6 +121,14 @@ class CommonSettings(BaseAppSettings):
 
     HOST: str = "https://api.heygaia.io"
     FRONTEND_URL: str = "https://heygaia.io"
+    # Extra CORS origins beyond FRONTEND_URL, comma-separated, e.g.
+    # "https://gaia.example.com,https://www.gaia.example.com". Must be explicit
+    # origins — the CORS layer runs with allow_credentials=True, under which
+    # a wildcard origin is silently ignored by Starlette.
+    CORS_ALLOWED_ORIGINS: str = ""
+    # Optional regex of additional allowed origins; overrides the built-in
+    # dev-only localhost regex when set.
+    CORS_ALLOWED_ORIGIN_REGEX: str | None = None
     DUMMY_IP: str = "8.8.8.8"
     WORKER_TYPE: str = "unknown"
     ENABLE_LAZY_LOADING: bool = True
