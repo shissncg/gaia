@@ -441,6 +441,9 @@ services:
     environment:
       PYTHONPATH: /app/apps/api
       ENV: development
+      # In-stack infra container hostnames — see gaia-backend for why.
+      MONGO_DB: mongodb://mongo:27017/
+      REDIS_URL: redis://redis:6379/0
     # --force skips an interactive input() prompt; --no-backup because the
     # default backup writes to CWD (/app/apps/api, root-owned) and the
     # container runs as appuser.
@@ -465,6 +468,11 @@ services:
     environment:
       PYTHONPATH: /app/apps/api
       ENV: development
+      # In-stack infra container hostnames — see gaia-backend for why.
+      MONGO_DB: mongodb://mongo:27017/
+      REDIS_URL: redis://redis:6379/0
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: "8000"
     command: ["python", "scripts/populate_gaia_knowledge.py"]
     depends_on:
       chromadb:
@@ -555,6 +563,9 @@ services:
       LOG_FORMAT: json
       LOG_COLORIZE: "false"
       GAIA_BACKEND_URL: http://gaia-backend:8000
+      # In-stack infra container hostnames — see gaia-backend for why.
+      MONGO_DB: mongodb://mongo:27017/
+      REDIS_URL: redis://redis:6379/0
     env_file:
       - ../../apps/api/.env
     volumes:
