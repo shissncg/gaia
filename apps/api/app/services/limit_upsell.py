@@ -15,6 +15,7 @@ affect the 429 itself.
 from contextvars import ContextVar
 from enum import StrEnum
 
+from app.config.settings import settings
 from app.models.payment_models import PlanType
 from app.services.analytics_service import capture_event
 from app.services.email.senders import (
@@ -69,6 +70,11 @@ def schedule_limit_upsell(
     user_id: str, feature_key: str, user_plan: PlanType, origin: LimitHitOrigin
 ) -> None:
     """Queue the limit-hit side effects for a free user (no-op for paid plans)."""
+    # Redundant with the PRO grant + enforcement early-returns on purpose:
+    # this is the single seam for upgrade emails/analytics, and no future
+    # caller may re-enable them on a self-hosted box.
+    if settings.DEPLOYMENT_MODE == "self_hosted":
+        return
     if user_plan != PlanType.FREE:
         return
     spawn_background_task(_run(user_id, feature_key, origin))

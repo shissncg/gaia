@@ -105,6 +105,21 @@ class TestScheduleGate:
             )
         spawn.assert_not_called()
 
+    def test_self_hosted_schedules_nothing_even_for_a_free_plan(self) -> None:
+        """Redundant with the PRO grant + enforcement early-returns on purpose:
+        this is the single seam for upgrade emails/analytics, and no future
+        caller may re-enable them on a self-hosted box."""
+        from app.services import limit_upsell as limit_upsell_module
+
+        with (
+            patch.object(limit_upsell_module.settings, "DEPLOYMENT_MODE", "self_hosted"),
+            patch(f"{MODULE}.spawn_background_task") as spawn,
+        ):
+            schedule_limit_upsell(
+                "user-1", "chat_messages", PlanType.FREE, LimitHitOrigin.INTERACTIVE
+            )
+        spawn.assert_not_called()
+
 
 class TestTheRunOriginMarker:
     """``mark_run_origin`` decides which email a limit hit sends, so an unmarked

@@ -150,8 +150,11 @@ async def _bot_rate_limit_notice(chunk: dict[str, Any], user_id: str) -> str | N
     feature = str(card.get("feature") or "this feature").replace("_", " ")
     notice = f"⏳ You've reached your {feature} limit. Please try again later."
 
-    # Nudge an upgrade only for non-Pro users (Pro is the top tier).
-    if card.get("current_plan") != PlanType.PRO.value:
+    # Nudge an upgrade only for non-Pro users (Pro is the top tier). Self-hosted
+    # has no billing to upgrade into — this notice is built straight from the
+    # rate-limit card, independent of `schedule_limit_upsell`, so it needs its
+    # own mode gate rather than relying on that seam alone.
+    if settings.DEPLOYMENT_MODE != "self_hosted" and card.get("current_plan") != PlanType.PRO.value:
         notice += f" [Upgrade to Pro]({await _bot_upgrade_url(user_id)}) for higher limits."
     return notice
 
