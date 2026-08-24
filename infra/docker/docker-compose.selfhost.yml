@@ -401,6 +401,53 @@ services:
     networks:
       - gaia_network
 
+  # Seeds the Explore gallery (curated workflow templates). Not boot-critical
+  # — gaia-backend does not depend on this completing.
+  seed-explore:
+    container_name: seed-explore
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      PYTHONPATH: /app/apps/api
+      ENV: development
+    # --force skips an interactive input() prompt; --no-backup because the
+    # default backup writes to CWD (/app/apps/api, root-owned) and the
+    # container runs as appuser.
+    command: ["python", "scripts/seed_explore_workflows.py", "--force", "--no-backup"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - gaia_network
+
+  # Seeds GAIA's self-knowledge base in ChromaDB from docs/GAIA.md. Requires
+  # GOOGLE_API_KEY in apps/api/.env; safe to re-run.
+  seed-knowledge:
+    container_name: seed-knowledge
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      PYTHONPATH: /app/apps/api
+      ENV: development
+    command: ["python", "scripts/populate_gaia_knowledge.py"]
+    depends_on:
+      chromadb:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - gaia_network
+
   # Embedding + reranking sidecar. Loads the fastembed models ONCE so the
   # backend and worker share a single ~1.8GB copy instead of each loading their
   # own. Reuses the gaia image; the app processes reach it via

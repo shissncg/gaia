@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronUp } from "@/components/shared/icons";
 import { NewChatSection } from "@/features/chat/components/interface/sections/NewChatSection";
 import UseCaseSection from "@/features/use-cases/components/UseCaseSection";
+import { useExploreWorkflows } from "@/features/workflows/hooks/useExploreWorkflows";
 
 interface NewChatLayoutProps {
   dummySectionRef: React.RefObject<HTMLDivElement | null>;
@@ -31,6 +32,12 @@ export const NewChatLayout: React.FC<NewChatLayoutProps> = ({
   composerProps,
 }) => {
   const [showUseCases, setShowUseCases] = useState(false);
+  // Same store UseCaseSection reads from — a fresh self-host with no seeded
+  // explore workflows shouldn't offer a button into an empty gallery.
+  const { workflows: exploreWorkflows, isLoading: isLoadingExploreWorkflows } =
+    useExploreWorkflows();
+  const hasExploreWorkflows =
+    isLoadingExploreWorkflows || exploreWorkflows.length > 0;
 
   // A static landing page — plain scrolling, no stick-to-bottom semantics.
   return (
@@ -41,7 +48,7 @@ export const NewChatLayout: React.FC<NewChatLayoutProps> = ({
           showUseCases={showUseCases}
         />
 
-        {!showUseCases && (
+        {!showUseCases && hasExploreWorkflows && (
           <Button
             className="font-medium text-zinc-300"
             radius="full"
