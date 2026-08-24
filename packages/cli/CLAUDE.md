@@ -11,6 +11,7 @@ The `@heygaia/cli` package — a Node.js CLI tool (`gaia`) for self-hosting GAIA
 | `gaia start [-b/--build] [--pull]` | Start services via Docker Compose |
 | `gaia dev [profile]` | Start infrastructure services for local development |
 | `gaia stop [--force-ports]` | Stop running services |
+| `gaia update` | Pull, rebuild, migrate, and restart (self-host mode) |
 | `gaia status` | Show service health status |
 | `gaia logs` | Stream Docker Compose logs |
 | `gaia bridge <cmd>` | Connect this machine's local MCP servers/folders to GAIA over an outbound tunnel (`add`, `login`, `fs`, `ls`, `rm`, `up`, `logout`) |
@@ -51,6 +52,7 @@ src/
     start/                  - Docker Compose start flow
     dev/                    - Local dev infrastructure flow
     stop/                   - Stop services
+    update/                 - Pull, rebuild, migrate, restart flow
     status/                 - Health check display
     stream-logs/            - Log streaming
   lib/

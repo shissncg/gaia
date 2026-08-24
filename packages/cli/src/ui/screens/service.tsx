@@ -66,7 +66,7 @@ const DockerLogWindow: React.FC<{ logs: string[] }> = ({ logs }) => {
 
 interface ServiceScreenProps {
   store: CLIStore;
-  command: "start" | "stop";
+  command: "start" | "stop" | "update";
 }
 
 export const ServiceScreen: React.FC<ServiceScreenProps> = ({ store }) => {
@@ -83,7 +83,10 @@ export const ServiceScreen: React.FC<ServiceScreenProps> = ({ store }) => {
   useInput((_input, key) => {
     if (
       (key.return || key.escape) &&
-      (state.data.started || state.data.stopped || state.error)
+      (state.data.started ||
+        state.data.stopped ||
+        state.data.updated ||
+        state.error)
     ) {
       store.submitInput("exit");
     }
@@ -93,7 +96,9 @@ export const ServiceScreen: React.FC<ServiceScreenProps> = ({ store }) => {
     <Box flexDirection="column" width="100%">
       <Header />
 
-      {(state.step === "Starting" || state.step === "Stopping") && (
+      {(state.step === "Starting" ||
+        state.step === "Stopping" ||
+        state.step === "Updating") && (
         <Box
           flexDirection="column"
           marginTop={1}
@@ -203,6 +208,35 @@ export const ServiceScreen: React.FC<ServiceScreenProps> = ({ store }) => {
               </Text>
             </Box>
           )}
+          <Box marginTop={1}>
+            <Text dimColor>
+              <Text bold>Enter</Text> to exit
+            </Text>
+          </Box>
+        </Box>
+      )}
+
+      {state.step === "Updated" && state.data.updated && (
+        <Box
+          flexDirection="column"
+          marginTop={1}
+          paddingX={2}
+          paddingY={1}
+          borderStyle="round"
+          borderColor="green"
+        >
+          <Text color="green" bold>
+            {"\u2713"} {state.status || "GAIA updated."}
+          </Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text color="gray">
+              Migrations: {state.data.migrationsApplied ?? 0} applied,{" "}
+              {state.data.migrationsSkipped ?? 0} skipped
+            </Text>
+            <Text color="gray">
+              Services running: {state.data.runningCount ?? 0}
+            </Text>
+          </Box>
           <Box marginTop={1}>
             <Text dimColor>
               <Text bold>Enter</Text> to exit

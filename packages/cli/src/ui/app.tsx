@@ -6,7 +6,13 @@ import { SetupScreen } from "./screens/setup.js";
 import { StatusScreen } from "./screens/status.js";
 import type { CLIStore } from "./store.js";
 
-export type CLICommand = "init" | "setup" | "status" | "start" | "stop";
+export type CLICommand =
+  | "init"
+  | "setup"
+  | "status"
+  | "start"
+  | "stop"
+  | "update";
 
 const AVAILABLE_COMMANDS: readonly CLICommand[] = [
   "init",
@@ -14,6 +20,7 @@ const AVAILABLE_COMMANDS: readonly CLICommand[] = [
   "status",
   "start",
   "stop",
+  "update",
 ];
 
 interface AppProps {
@@ -70,6 +77,7 @@ const CommandRouter: React.FC<AppProps> = ({ store, command }) => {
       return <StatusScreen store={store} />;
     case "start":
     case "stop":
+    case "update":
       return <ServiceScreen store={store} command={command} />;
     default:
       return (

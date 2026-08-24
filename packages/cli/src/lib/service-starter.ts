@@ -134,6 +134,91 @@ export async function startServices(
   onStatus?.("All services started in Docker!");
 }
 
+/** Default ceiling for a `docker compose pull`/`build`/migrate step, in minutes. */
+const DEFAULT_UPDATE_STEP_TIMEOUT_MIN = 30;
+
+/**
+ * Pull the latest published images for the self-host compose stack. Used by
+ * `gaia update` ahead of `buildSelfhostImages` — a published image needs no
+ * local build, so pulling first keeps a plain image-only upgrade fast.
+ */
+export async function pullSelfhostImages(
+  repoPath: string,
+  onLog?: (chunk: string) => void,
+): Promise<void> {
+  const dockerComposePath = path.join(repoPath, "infra/docker");
+  await runCommand(
+    "docker",
+    [
+      "compose",
+      "-f",
+      "docker-compose.selfhost.yml",
+      ...getEnvFileArgs(dockerComposePath),
+      "pull",
+    ],
+    dockerComposePath,
+    undefined,
+    onLog,
+    undefined,
+    DEFAULT_UPDATE_STEP_TIMEOUT_MIN * 60 * 1000,
+  );
+}
+
+/** Rebuild the self-host compose stack's locally-built images (gaia-backend, arq_worker, seed-*, gaia-web). */
+export async function buildSelfhostImages(
+  repoPath: string,
+  onLog?: (chunk: string) => void,
+): Promise<void> {
+  const dockerComposePath = path.join(repoPath, "infra/docker");
+  await runCommand(
+    "docker",
+    [
+      "compose",
+      "-f",
+      "docker-compose.selfhost.yml",
+      ...getEnvFileArgs(dockerComposePath),
+      "build",
+    ],
+    dockerComposePath,
+    undefined,
+    onLog,
+    undefined,
+    DEFAULT_UPDATE_STEP_TIMEOUT_MIN * 60 * 1000,
+  );
+}
+
+/**
+ * Run the ordered Mongo migration one-shot (apps/api/scripts/run_migrations.py)
+ * to completion and propagate its exit code.
+ *
+ * `docker compose up SERVICE` without `-d` does NOT surface the container's
+ * exit code as the compose process's own exit code by default — a failed
+ * migration would otherwise be silently treated as success. `--exit-code-from`
+ * is required to make a nonzero migration exit actually reject this promise.
+ */
+export async function runSelfhostMigrations(
+  repoPath: string,
+  onLog?: (chunk: string) => void,
+): Promise<void> {
+  const dockerComposePath = path.join(repoPath, "infra/docker");
+  await runCommand(
+    "docker",
+    [
+      "compose",
+      "-f",
+      "docker-compose.selfhost.yml",
+      ...getEnvFileArgs(dockerComposePath),
+      "up",
+      "run-migrations",
+      "--exit-code-from",
+      "run-migrations",
+    ],
+    dockerComposePath,
+    undefined,
+    onLog,
+  );
+}
+
 export async function stopServices(
   repoPath: string,
   onStatus?: (status: string) => void,

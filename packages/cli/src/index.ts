@@ -10,6 +10,7 @@ import { runStart } from "./commands/start/handler.js";
 import { runStatus } from "./commands/status/handler.js";
 import { runStop } from "./commands/stop/handler.js";
 import { runLogs } from "./commands/stream-logs/handler.js";
+import { runUpdate } from "./commands/update/handler.js";
 import { CLI_VERSION } from "./lib/version.js";
 
 const program = new Command();
@@ -85,6 +86,13 @@ program
   )
   .action(async (options: { forcePorts?: boolean }) => {
     await runStop({ forcePorts: options.forcePorts });
+  });
+
+program
+  .command("update")
+  .description(CLI_COMMAND_DESCRIPTIONS.update)
+  .action(async () => {
+    await runUpdate();
   });
 
 // Show help when no command is given instead of silently running init
