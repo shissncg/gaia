@@ -4,7 +4,7 @@ from typing import Any, cast
 from fastapi import Depends, Header, HTTPException, Request, WebSocket, status
 
 from app.config.settings import settings
-from app.constants.auth import DEV_USER_MISSING_HINT
+from app.constants.auth import DEV_USER_MISSING_HINT, WOS_SESSION_COOKIE
 from app.constants.error_codes import NOT_AUTHENTICATED
 from app.constants.log_tags import LogTag
 from app.db.repositories.users import user_repository
@@ -143,7 +143,7 @@ async def get_current_user_ws(websocket: WebSocket) -> AuthenticatedUser:
         return {}
 
     # Extract the session cookie from WebSocket
-    wos_session = websocket.cookies.get("wos_session")
+    wos_session = websocket.cookies.get(WOS_SESSION_COOKIE)
 
     # Fallback: check Sec-WebSocket-Protocol header for mobile clients
     # Client sends: new WebSocket(url, ['Bearer', token])

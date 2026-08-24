@@ -12,7 +12,7 @@ from workos import AsyncWorkOSClient
 
 from app.api.v1.middleware.agent_auth import verify_agent_token
 from app.config.settings import settings
-from app.constants.auth import DEV_USER_HEADER, DEV_USER_MISSING_HINT
+from app.constants.auth import DEV_USER_HEADER, DEV_USER_MISSING_HINT, WOS_SESSION_COOKIE
 from app.constants.error_codes import NOT_AUTHENTICATED
 from app.constants.log_tags import LogTag
 from app.core.lazy_loader import providers
@@ -23,6 +23,7 @@ from app.utils.auth_utils import (
     authenticate_workos_session,
     build_user_context,
     resolve_dev_bypass_user,
+    session_cookie_kwargs,
 )
 from shared.py.wide_events import log
 
@@ -151,7 +152,7 @@ class WorkOSAuthMiddleware(BaseHTTPMiddleware):
         if self.dev_bypass_email:
             return await self._dispatch_dev_bypass(request, call_next)
 
-        wos_session = request.cookies.get("wos_session")
+        wos_session = request.cookies.get(WOS_SESSION_COOKIE)
         if not wos_session:
             auth_header = request.headers.get("Authorization")
             if auth_header and auth_header.startswith("Bearer "):
@@ -224,12 +225,10 @@ class WorkOSAuthMiddleware(BaseHTTPMiddleware):
 
         if hasattr(request.state, "new_session") and request.state.new_session:
             response.set_cookie(
-                key="wos_session",
+                key=WOS_SESSION_COOKIE,
                 value=request.state.new_session,
-                httponly=True,
-                secure=settings.ENV == "production",
-                samesite="lax",
                 max_age=60 * 60 * 24 * 7,
+                **session_cookie_kwargs(),
             )
 
         return response

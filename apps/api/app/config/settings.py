@@ -129,6 +129,14 @@ class CommonSettings(BaseAppSettings):
     # Optional regex of additional allowed origins; overrides the built-in
     # dev-only localhost regex when set.
     CORS_ALLOWED_ORIGIN_REGEX: str | None = None
+    # Session-cookie policy. COOKIE_SECURE=None derives from the HOST scheme
+    # (https -> Secure) instead of ENV, so a self-hosted https deployment
+    # running development-mode settings still gets Secure cookies.
+    COOKIE_SECURE: bool | None = None
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
+    # Set to share the session across subdomains (e.g. ".example.com" when
+    # web and API live on different subdomains). Leave unset for host-only.
+    COOKIE_DOMAIN: str | None = None
     DUMMY_IP: str = "8.8.8.8"
     WORKER_TYPE: str = "unknown"
     ENABLE_LAZY_LOADING: bool = True
