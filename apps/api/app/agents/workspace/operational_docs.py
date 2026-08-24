@@ -33,6 +33,10 @@ from __future__ import annotations
 
 from typing import Final, Literal, NamedTuple, get_args
 
+from app.config.settings import settings
+from app.constants.log_tags import LogTag
+from shared.py.wide_events import log
+
 # ---------------------------------------------------------------------------
 # Topic docs — one self-contained file per concern.
 # Bodies are faithful merges of the prior GUIDE.md + gaia-* skill content.
@@ -812,6 +816,56 @@ context. It is cheap and keeps you from guessing how your own machinery works.
 - Never claim you did something you did not actually do with a tool.
 """
 
+# Fragments of GAIA_CORE that route pricing/upgrade questions to the billing
+# tools and the `billing` manual topic. Self-hosted deployments never
+# register those tools (see registry._initialize_categories), so the
+# always-on core must not tell the executor to reach for them.
+_BILLING_ROUTING_ROWS = (
+    '| "Am I on Pro / what am I paying / show my invoices?" | `get_subscription_details` | `billing` |\n'
+    '| "Upgrade me / I want Pro / how do I pay?" | `create_upgrade_link` | `billing` |\n'
+)
+_BILLING_TOPIC_LIST_MENTION = "sessions/artifacts, notifications, workflows, memory, billing)"
+_BILLING_TOPIC_LIST_MENTION_STRIPPED = "sessions/artifacts, notifications, workflows, memory)"
+_BILLING_MANUAL_BULLET = (
+    "- `billing` — the user's plan and payment history, handing them a checkout link\n"
+    "  to upgrade to Pro, and what to say when they hit a usage limit.\n"
+)
+
+
+def _strip_billing_references(core: str) -> str:
+    """Remove the billing/upgrade routing instructions from ``core``.
+
+    Three known fragments; each is checked before removal so a future edit to
+    GAIA_CORE that changes this text can't silently leave the self-hosted core
+    still pointing the executor at billing tools that don't exist.
+    """
+    missing = [
+        label
+        for label, fragment in (
+            ("routing table rows", _BILLING_ROUTING_ROWS),
+            ("topic list mention", _BILLING_TOPIC_LIST_MENTION),
+            ("manual bullet", _BILLING_MANUAL_BULLET),
+        )
+        if fragment not in core
+    ]
+    if missing:
+        log.warning(
+            f"{LogTag.AGENT} operational_docs: billing references not found in GAIA_CORE "
+            f"({', '.join(missing)}) — the self-hosted core may still route billing "
+            "questions. Update _strip_billing_references to match GAIA_CORE."
+        )
+        return core
+
+    core = core.replace(_BILLING_ROUTING_ROWS, "")
+    core = core.replace(_BILLING_TOPIC_LIST_MENTION, _BILLING_TOPIC_LIST_MENTION_STRIPPED)
+    core = core.replace(_BILLING_MANUAL_BULLET, "")
+    return core
+
+
+# Precomputed once at import (like GAIA_CORE itself) so the bytes stay stable
+# for the provider's prompt cache within a deployment's process lifetime.
+_GAIA_CORE_SELF_HOSTED: Final[str] = _strip_billing_references(GAIA_CORE)
+
 
 class ManualDoc(NamedTuple):
     """One self-contained operating-manual topic.
@@ -961,7 +1015,14 @@ if set(get_args(ManualTopic)) != set(MANUAL_DOCS):
 
 
 def get_core() -> str:
-    """Return the always-on operating core."""
+    """Return the always-on operating core.
+
+    Self-hosted deployments get the billing-stripped variant: no billing
+    tools are registered there (see registry._initialize_categories), so the
+    core must not route pricing/upgrade questions to them.
+    """
+    if settings.DEPLOYMENT_MODE == "self_hosted":
+        return _GAIA_CORE_SELF_HOSTED
     return GAIA_CORE
 
 

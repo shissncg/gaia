@@ -385,7 +385,14 @@ class LangChainRateLimitException(Exception):
         # A wall with no way past it reads as a dead end, so a free user's limit
         # message names the tool that mints their checkout link. The agent decides
         # whether an upsell fits the moment — no link is created unless it does.
-        if self.detail.get("current_plan") == PlanType.FREE.value:
+        # Self-hosted deployments have no billing tools (see
+        # registry._initialize_categories), so the copy must never sell an
+        # upgrade nobody can buy — this is rare after the 4.2 walls (self-host
+        # plan is always PRO) but not impossible for a non-plan abuse limit.
+        if (
+            self.detail.get("current_plan") == PlanType.FREE.value
+            and settings.DEPLOYMENT_MODE != "self_hosted"
+        ):
             message += (
                 " This user is on the free plan: offer to upgrade them and call "
                 "`create_upgrade_link` for a checkout link if they want it."

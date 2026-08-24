@@ -203,6 +203,23 @@ class TestBlockedToolStreamsItsCard:
             " `create_upgrade_link` for a checkout link if they want it."
         )
 
+    async def test_self_hosted_never_sells_an_upgrade_nobody_can_buy(self) -> None:
+        """After the 4.2 walls, a free-plan block is rare in self-host — but the
+        copy must not sell an upgrade if one somehow still fires."""
+        with (
+            patch.object(rl.settings, "DEPLOYMENT_MODE", "self_hosted"),
+            pytest.raises(rl.LangChainRateLimitException) as raised,
+        ):
+            await _call_blocked_tool(
+                RateLimitExceededException(
+                    feature="generate_image", reset_time=RESET_AT, current_plan="free"
+                )
+            )
+
+        assert str(raised.value) == (
+            f"Rate limit exceeded for generate_image. Resets at {RESET_AT.isoformat()}."
+        )
+
     async def test_a_pro_user_is_not_pitched_an_upgrade(self) -> None:
         with pytest.raises(rl.LangChainRateLimitException) as raised:
             await _call_blocked_tool(

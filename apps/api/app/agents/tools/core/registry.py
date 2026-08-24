@@ -5,6 +5,7 @@ from typing import cast
 from langchain_core.tools import BaseTool
 
 from app.config.oauth_config import OAUTH_INTEGRATIONS
+from app.config.settings import settings
 from app.constants.log_tags import LogTag
 from app.core.lazy_loader import MissingKeyStrategy, lazy_provider, providers
 from app.models.oauth_models import OAuthIntegration
@@ -378,7 +379,11 @@ class ToolRegistry:
         # A checkout link is inert until the user chooses to pay it, so nothing
         # here is destructive — gating "show me how to upgrade" behind an
         # approval prompt would be absurd.
-        self._add_category("billing", tools=[*subscription_tool.tools], destructive_tools=set())
+        #
+        # Self-hosted deployments have no billing: don't hand the agent tools
+        # whose only outputs are Dodo checkout links and subscription status.
+        if settings.DEPLOYMENT_MODE != "self_hosted":
+            self._add_category("billing", tools=[*subscription_tool.tools], destructive_tools=set())
         self._add_category("manual", tools=[*manual_tool.tools], destructive_tools=set())
         self._add_category("memory", tools=memory_tools.tools, destructive_tools=set())
         self._add_category(

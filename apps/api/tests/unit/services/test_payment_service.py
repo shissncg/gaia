@@ -705,6 +705,29 @@ class TestCreateSubscription:
         call_kwargs = mock_dodo_client.checkout_sessions.create.call_args[1]
         assert call_kwargs["product_cart"][0]["quantity"] == 3
 
+    async def test_no_client_fails_loud_with_a_clear_502(
+        self,
+        payment_service,
+        mock_users_collection,
+        mock_subscription_repository,
+        mock_plan_repository,
+    ):
+        """Self-hosted (or no API key): the guard raises before touching a
+        None client, and the generic except wraps it into the same 502 shape
+        every other Dodo failure gets — never a bare AttributeError."""
+        _set_user(mock_users_collection, SAMPLE_USER_DOC)
+        mock_subscription_repository.get_active_for_user = AsyncMock(return_value=None)
+        payment_service.client = None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await payment_service.create_subscription(
+                user_id=FAKE_USER_ID,
+                product_id="prod_abc123",
+            )
+
+        assert exc_info.value.status_code == 502
+        assert "Payments are disabled on this deployment" in str(exc_info.value.detail)
+
 
 @pytest.mark.unit
 class TestCancelSubscription:
@@ -799,6 +822,25 @@ class TestCancelSubscription:
 
         assert exc_info.value.status_code == 502
         assert "Payment service error" in str(exc_info.value.detail)
+
+    async def test_no_client_fails_loud_with_a_clear_502(
+        self,
+        payment_service,
+        mock_subscription_repository,
+    ):
+        """Self-hosted (or no API key): the guard raises before touching a
+        None client, wrapped into the same 502 shape as any other Dodo
+        failure."""
+        mock_subscription_repository.get_active_for_user = AsyncMock(
+            return_value=SAMPLE_SUBSCRIPTION
+        )
+        payment_service.client = None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await payment_service.cancel_subscription(FAKE_USER_ID)
+
+        assert exc_info.value.status_code == 502
+        assert "Payments are disabled on this deployment" in str(exc_info.value.detail)
 
 
 @pytest.mark.unit
@@ -1397,6 +1439,17 @@ class TestGetPaymentHistory:
         assert await payment_service.get_payment_history(FAKE_USER_ID) == []
         mock_dodo_client.payments.list.assert_not_called()
 
+    async def test_no_client_degrades_to_an_empty_history_not_an_error(
+        self, payment_service, mock_subscription_repository
+    ):
+        """Unlike create/cancel, a missing client (self-hosted, no API key)
+        must not raise here: a subscriber-less deployment having no payment
+        history is a normal answer its callers already treat as one."""
+        payment_service.client = None
+
+        assert await payment_service.get_payment_history(FAKE_USER_ID) == []
+        mock_subscription_repository.list_for_user.assert_not_called()
+
     async def test_merges_every_subscription_newest_first(
         self, payment_service, mock_subscription_repository, mock_dodo_client
     ):
@@ -1634,6 +1687,7 @@ class TestDodoPaymentServiceInit:
         """If DodoPayments raises, the error is logged but not propagated."""
         with patch("app.services.payments.payment_service.settings") as mock_settings:
             mock_settings.ENV = "development"
+            mock_settings.DEPLOYMENT_MODE = "cloud"
             mock_settings.DODO_PAYMENTS_API_KEY = "bad_key"
             with patch(
                 "app.services.payments.payment_service.DodoPayments",
@@ -1643,10 +1697,36 @@ class TestDodoPaymentServiceInit:
                     # Should not raise
                     svc = DodoPaymentService()
 
-                # Init failure leaves the service without a usable client
-                assert not hasattr(svc, "client")
+                # Init failure leaves the service without a usable client. The
+                # attribute is always declared (never absent) so every
+                # `self.client`-touching call site can do a plain None check
+                # instead of dying with an AttributeError far from the cause.
+                assert svc.client is None
                 # The failure must be surfaced in the logs, not swallowed
                 mock_log.error.assert_called_once()
+
+    def test_self_hosted_skips_construction_entirely(self):
+        """No Dodo account on a self-hosted box: don't even try the SDK call."""
+        with patch("app.services.payments.payment_service.settings") as mock_settings:
+            mock_settings.DEPLOYMENT_MODE = "self_hosted"
+            mock_settings.DODO_PAYMENTS_API_KEY = "sk_live_should_be_unused"
+            with patch("app.services.payments.payment_service.DodoPayments") as mock_cls:
+                svc = DodoPaymentService()
+
+            mock_cls.assert_not_called()
+            assert svc.client is None
+
+    def test_missing_api_key_skips_construction_entirely(self):
+        """No API key configured (e.g. a fresh dev box): don't call the SDK
+        with credentials that don't exist."""
+        with patch("app.services.payments.payment_service.settings") as mock_settings:
+            mock_settings.DEPLOYMENT_MODE = "cloud"
+            mock_settings.DODO_PAYMENTS_API_KEY = None
+            with patch("app.services.payments.payment_service.DodoPayments") as mock_cls:
+                svc = DodoPaymentService()
+
+            mock_cls.assert_not_called()
+            assert svc.client is None
 
 
 # ============================================================================
