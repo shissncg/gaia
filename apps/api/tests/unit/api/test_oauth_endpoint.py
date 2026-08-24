@@ -411,6 +411,48 @@ class TestComposioCallback:
     @patch("app.api.v1.endpoints.oauth.handle_oauth_connection", new_callable=AsyncMock)
     @patch("app.api.v1.endpoints.oauth.get_integration_by_config")
     @patch("app.api.v1.endpoints.oauth.get_composio_service")
+    @patch(
+        "app.api.v1.endpoints.oauth.validate_and_consume_oauth_state",
+        new_callable=AsyncMock,
+    )
+    async def test_the_success_redirect_has_no_double_slash_after_frontend_url(
+        self,
+        mock_state: AsyncMock,
+        mock_composio: MagicMock,
+        mock_config: MagicMock,
+        mock_handle: AsyncMock,
+        mock_capture: MagicMock,
+        client: AsyncClient,
+    ):
+        """FRONTEND_URL is trailing-slash-stripped and redirect_path conventionally
+        starts with "/" (see is_safe_redirect_path) — concatenating them with an
+        extra literal "/" produces "https://host//path?...", which every other
+        redirect site in this file builds without the extra slash."""
+        mock_state.return_value = {
+            "redirect_path": "/integrations",
+            "user_id": "uid1",
+        }
+        account = MagicMock()
+        account.auth_config.id = "config1"
+        account.user_id = "uid1"
+        mock_composio.return_value.get_connected_account_by_id.return_value = account
+        integration = MagicMock()
+        integration.id = "gmail"
+        mock_config.return_value = integration
+
+        response = await client.get(
+            f"{OAUTH_BASE}/composio/callback?status=success&state=tok&connectedAccountId=acc1",
+            follow_redirects=False,
+        )
+
+        location = response.headers["location"]
+        after_scheme = location.split("://", 1)[1]
+        assert "//" not in after_scheme, f"double slash in redirect: {location}"
+
+    @patch("app.api.v1.endpoints.oauth.capture_event")
+    @patch("app.api.v1.endpoints.oauth.handle_oauth_connection", new_callable=AsyncMock)
+    @patch("app.api.v1.endpoints.oauth.get_integration_by_config")
+    @patch("app.api.v1.endpoints.oauth.get_composio_service")
     @patch("app.api.v1.endpoints.oauth.user_integration_repository")
     @patch("app.api.v1.endpoints.oauth.log")
     @patch(

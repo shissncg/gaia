@@ -225,6 +225,15 @@ class CommonSettings(BaseAppSettings):
     # - Used for discovering and installing skills from GitHub
     GITHUB_TOKEN: str | None = None
 
+    # ----------------------------------------------
+    # Composio integration overrides (self-host)
+    # ----------------------------------------------
+    # JSON map of integration id -> Composio auth config id, overriding the
+    # vendor defaults baked into oauth_config.py. Self-hosters create one auth
+    # config per toolkit in their own Composio dashboard and map them here:
+    # COMPOSIO_AUTH_CONFIGS={"gmail": "ac_yourGmailCfg", "googlecalendar": "ac_..."}
+    COMPOSIO_AUTH_CONFIGS: str = ""
+
     # check_fields=False: E2B_DOMAIN is declared per-environment in the subclasses.
     # Rejected rather than stripped because the e2b SDK reads os.environ verbatim —
     # "" there silently falls back to the US cluster, padding yields a broken URL.

@@ -6,6 +6,7 @@ Defines integrations, scopes, display properties, and subagent configurations.
 """
 
 from functools import cache
+import json
 
 from app.agents.prompts.memory_prompts import (
     AGENTMAIL_MEMORY_PROMPT,
@@ -115,6 +116,7 @@ from app.config.oauth_content import (
     YELP_CONTENT,
     ZOOM_CONTENT,
 )
+from app.config.settings import settings
 from app.constants.hil_destructive_tools import (
     AIRTABLE_DESTRUCTIVE_TOOLS,
     ASANA_DESTRUCTIVE_TOOLS,
@@ -2016,13 +2018,48 @@ def get_short_name_mapping() -> dict[str, str]:
     return {i.short_name: i.id for i in OAUTH_INTEGRATIONS if i.short_name}
 
 
+def _parse_composio_auth_config_overrides() -> dict[str, str]:
+    """Parse COMPOSIO_AUTH_CONFIGS once: integration id -> Composio auth config id.
+
+    Empty string is the only silent path (-> {}, the vendor defaults apply
+    unchanged). Malformed JSON fails loud — a typo in a self-hoster's .env
+    must not silently fall back to auth config ids from someone else's
+    Composio project.
+    """
+    raw = settings.COMPOSIO_AUTH_CONFIGS
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"COMPOSIO_AUTH_CONFIGS is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "COMPOSIO_AUTH_CONFIGS must be a JSON object mapping integration id -> auth config id"
+        )
+    return parsed
+
+
 @cache
 def get_composio_social_configs() -> dict[str, ComposioConfig]:
-    """Get COMPOSIO_SOCIAL_CONFIGS from integrations managed by Composio."""
+    """Get COMPOSIO_SOCIAL_CONFIGS from integrations managed by Composio.
+
+    COMPOSIO_AUTH_CONFIGS overrides the vendor's hardcoded per-integration
+    auth_config_id with one from the self-hoster's own Composio project,
+    keyed by ``OAuthIntegration.id`` (e.g. "gmail", "googlecalendar") — NOT
+    by this dict's own key (``integration.provider``). The two aren't always
+    equal: googlecalendar's id is "googlecalendar" but its provider is
+    "google", so matching on provider would silently miss it.
+    """
+    overrides = _parse_composio_auth_config_overrides()
     configs = {}
     for integration in OAUTH_INTEGRATIONS:
         if integration.managed_by == "composio" and integration.composio_config:
-            configs[integration.provider] = integration.composio_config
+            config = integration.composio_config
+            override = overrides.get(integration.id)
+            if override:
+                config = config.model_copy(update={"auth_config_id": override})
+            configs[integration.provider] = config
     return configs
 
 

@@ -114,6 +114,7 @@
               "self-hosting/overview",
               "self-hosting/cli-setup",
               "self-hosting/docker-setup",
+              "self-hosting/integrations",
               "configuration/environment-variables",
               "configuration/docker"
             ]

@@ -648,7 +648,7 @@ async def composio_callback(
         )
         # Add success parameter and integration name to URL
         separator = "?" if "?" not in redirect_path else "&"
-        redirect_url = f"{settings.FRONTEND_URL}/{redirect_path}{separator}oauth_success=true&integration={integration_config.id}"
+        redirect_url = f"{settings.FRONTEND_URL}{redirect_path}{separator}oauth_success=true&integration={integration_config.id}"
         return RedirectResponse(url=redirect_url)
 
     except Exception as e:
