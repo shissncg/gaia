@@ -503,6 +503,40 @@ services:
       - gaia_network
 
   # ---------------------------------------------------------------------------
+  # Voice Agent Worker — opt-in (profile-gated). Requires three vendor
+  # credentials in apps/api/.env: LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET,
+  # DEEPGRAM_API_KEY (speech-to-text), and ELEVENLABS_API_KEY (text-to-speech).
+  # Enable with: docker compose -f docker-compose.selfhost.yml --profile voice up -d
+  # ---------------------------------------------------------------------------
+  voice-agent-worker:
+    container_name: voice-agent-worker
+    profiles: ["voice"]
+    build:
+      context: ../..
+      dockerfile: apps/voice-agent/Dockerfile
+    image: gaia-voice-agent
+    working_dir: /app/apps/voice-agent
+    environment:
+      PYTHONUNBUFFERED: 1
+      FORCE_COLOR: 0
+      WORKER_TYPE: voice_agent_worker
+      DEBUG: 1
+      WATCHFILES_FORCE_POLLING: 1
+      HF_HUB_OFFLINE: "0"
+      LOCAL_FILES_ONLY: "0"
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      LOG_FORMAT: json
+      LOG_COLORIZE: "false"
+      GAIA_BACKEND_URL: http://gaia-backend:8000
+    env_file:
+      - ../../apps/api/.env
+    volumes:
+      - voice_agent_models:/home/appuser/.cache/huggingface
+    restart: unless-stopped
+    networks:
+      - gaia_network
+
+  # ---------------------------------------------------------------------------
   # MinIO — example S3-generic object store for JFS_BUCKET_URL, an alternative
   # to Cloudflare R2 for the JuiceFS workspace bucket. Object storage is a real
   # operational choice, so this ships commented-out rather than as a default
@@ -545,6 +579,8 @@ volumes:
   rabbitmq_data:
   juicefs_cache:
   embedding_models:
+  # Only used when the voice-agent-worker's "voice" profile is enabled.
+  voice_agent_models:
   # Only used when the commented-out `minio` service above is enabled.
   minio_data:
 
