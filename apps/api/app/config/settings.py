@@ -136,6 +136,15 @@ class CommonSettings(BaseAppSettings):
     # Key into the provider registry in app/services/email/providers.
     EMAIL_PROVIDER: str = "resend"
 
+    # SMTP delivery (EMAIL_PROVIDER=smtp). STARTTLS by default; set
+    # SMTP_STARTTLS=false only for a trusted-network relay.
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM: str | None = None
+    SMTP_STARTTLS: bool = True
+
     # ----------------------------------------------
     # Observability
     # ----------------------------------------------
