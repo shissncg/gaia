@@ -63,6 +63,46 @@ services:
     networks:
       - gaia_network
 
+  # JuiceFS metadata Redis. Mirrors prod (docker-compose.prod.yml) minus TLS
+  # and auth — the API mounts over the compose network, never the public
+  # internet. Holds the whole directory tree + inode→chunk mapping; the object
+  # store (R2/MinIO/S3) holds only anonymous blocks, so losing this loses the
+  # filesystem. Hence noeviction (a cache miss is a bad read; an evicted
+  # metadata key is corruption) and appendfsync always.
+  jfs-meta-redis:
+    image: redis:8-alpine
+    container_name: jfs-meta-redis
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "always",
+        "--maxmemory-policy",
+        "noeviction",
+        "--stop-writes-on-bgsave-error",
+        "yes",
+        "--save",
+        "900 1",
+        "--save",
+        "300 10",
+        "--save",
+        "60 10000",
+      ]
+    ports:
+      - "127.0.0.1:${JFS_META_REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - jfs_meta_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gaia_network
+
   mongo:
     image: mongo:8
     container_name: mongo
@@ -157,6 +197,9 @@ services:
       # are configured (R2_*/JUICEFS_META_URL_TEMPLATE in .env) — otherwise
       # workspace v2 features soft-fail with JuiceFSUnavailable.
       JUICEFS_HOST_MOUNT_PATH: /mnt/jfs
+      # JuiceFS metadata store — the bundled jfs-meta-redis service above.
+      # {shard} = the DB index (Phase 1: single shard, 0).
+      JUICEFS_META_URL_TEMPLATE: redis://jfs-meta-redis:6379/{shard}
       # JuiceFS is a FUSE mount; E2B's inotify watcher cannot watch a FUSE
       # filesystem, so artifact detection must tail the JuiceFS .accesslog.
       ARTIFACT_DETECTION_MODE: accesslog
@@ -193,6 +236,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      jfs-meta-redis:
         condition: service_healthy
       mongo:
         condition: service_healthy
@@ -254,6 +299,9 @@ services:
       # Session/sandbox background tasks touch the workspace, so the worker
       # needs the same JuiceFS mount as the backend.
       JUICEFS_HOST_MOUNT_PATH: /mnt/jfs
+      # JuiceFS metadata store — the bundled jfs-meta-redis service above.
+      # {shard} = the DB index (Phase 1: single shard, 0).
+      JUICEFS_META_URL_TEMPLATE: redis://jfs-meta-redis:6379/{shard}
       ARTIFACT_DETECTION_MODE: accesslog
       # Self-hosted SearXNG — the unlimited last-resort search fallback.
       SEARXNG_BASE_URL: http://searxng:8080
@@ -279,6 +327,8 @@ services:
       - juicefs_cache:/var/cache/juicefs
     depends_on:
       redis:
+        condition: service_healthy
+      jfs-meta-redis:
         condition: service_healthy
       mongo:
         condition: service_healthy
@@ -345,13 +395,50 @@ services:
     networks:
       - gaia_network
 
+  # ---------------------------------------------------------------------------
+  # MinIO — example S3-generic object store for JFS_BUCKET_URL, an alternative
+  # to Cloudflare R2 for the JuiceFS workspace bucket. Object storage is a real
+  # operational choice, so this ships commented-out rather than as a default
+  # service — uncomment to run a fully self-hosted storage stack. See the
+  # self-hosting docs for the full walkthrough.
+  # ---------------------------------------------------------------------------
+  # minio:
+  #   image: minio/minio
+  #   container_name: minio
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: gaia-minio
+  #     MINIO_ROOT_PASSWORD: change-me-minio-secret # pragma: allowlist secret
+  #   ports:
+  #     - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
+  #     - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+  #   volumes:
+  #     - minio_data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - gaia_network
+  #
+  # Matching apps/api/.env lines (also set JUICEFS_ALLOW_FORMAT=1 for the
+  # genuine first boot only, then remove it):
+  #   JFS_BUCKET_URL=http://minio:9000/gaia-workspace
+  #   R2_ACCESS_KEY=gaia-minio
+  #   R2_SECRET_KEY=change-me-minio-secret # pragma: allowlist secret
+  #
+  # One-time bucket creation (after `docker compose up -d minio`):
+  #   docker run --rm --network gaia-selfhost_gaia_network \
+  #     -e MC_HOST_local=http://gaia-minio:change-me-minio-secret@minio:9000 \
+  #     minio/mc mb local/gaia-workspace
+
 volumes:
   chroma_data:
   pgdata:
   redis_data:
+  jfs_meta_data:
   mongo_data:
   rabbitmq_data:
   juicefs_cache:
+  # Only used when the commented-out `minio` service above is enabled.
+  minio_data:
 
 networks:
   gaia_network:

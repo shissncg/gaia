@@ -194,6 +194,15 @@ class CommonSettings(BaseAppSettings):
     DEV_DEFAULT_MODEL: str | None = None
 
     # ----------------------------------------------
+    # Persistent Workspace Storage (R2 + JuiceFS)
+    # ----------------------------------------------
+    # Full S3-compatible bucket endpoint URL for the JuiceFS object store,
+    # e.g. "http://minio:9000/gaia-workspace" or an AWS S3 URL. When set it
+    # wins over the Cloudflare-R2 URL derived from R2_ACCOUNT_ID/R2_BUCKET.
+    # Credentials still come from R2_ACCESS_KEY/R2_SECRET_KEY (any S3 creds).
+    JFS_BUCKET_URL: str | None = None
+
+    # ----------------------------------------------
     # GitHub Integration (for Skill Discovery)
     # ----------------------------------------------
     # Optional: Get a token at https://github.com/settings/tokens

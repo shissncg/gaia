@@ -18,10 +18,15 @@ Values already in the environment take precedence, so a local `.env` or an
 explicit export still wins.
 
 Required env (mirrors apps/api/app/config/settings.py):
-    R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY, R2_SECRET_KEY
+    R2_ACCESS_KEY, R2_SECRET_KEY
+    R2_ACCOUNT_ID, R2_BUCKET      (or JFS_BUCKET_URL — see below)
     JUICEFS_META_URL_TEMPLATE     (must contain `{shard}`)
     JFS_ENCRYPTION_KEY            (optional — full RSA-4096 PEM; if set, written
                                    to a temp file and passed to `juicefs format`)
+    JFS_BUCKET_URL                (optional — full S3-generic bucket endpoint
+                                   URL, e.g. "http://minio:9000/gaia-workspace".
+                                   When set it wins over the Cloudflare-R2 URL
+                                   derived from R2_ACCOUNT_ID/R2_BUCKET.)
 """
 
 from __future__ import annotations
@@ -80,14 +85,16 @@ def format_shard(
     name_suffix: str = "",
     dry_run: bool = False,
 ) -> None:
-    account = required("R2_ACCOUNT_ID")
-    bucket = required("R2_BUCKET")
     access_key = required("R2_ACCESS_KEY")
     secret_key = required("R2_SECRET_KEY")
     meta_template = required("JUICEFS_META_URL_TEMPLATE")
 
     meta_url = meta_template.replace("{shard}", str(shard))
-    bucket_url = f"https://{account}.r2.cloudflarestorage.com/{bucket}"
+    bucket_url = os.environ.get("JFS_BUCKET_URL")
+    if not bucket_url:
+        bucket_url = (
+            f"https://{required('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com/{required('R2_BUCKET')}"
+        )
     # The volume name is the object-store prefix (<bucket>/<name>/), so juicefs
     # refuses to format when that prefix already holds blocks. Re-formatting
     # after losing the metadata engine therefore needs a fresh name — the old

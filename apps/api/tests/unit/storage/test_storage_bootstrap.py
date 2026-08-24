@@ -29,6 +29,7 @@ from app.services.storage import bootstrap
 from app.services.storage.bootstrap import (
     _bootstrap_loop,
     _bootstrap_once,
+    _bucket_url,
     _classify,
     _format_if_needed,
     _is_mounted,
@@ -287,6 +288,41 @@ def test_a_blank_credential_counts_as_missing_rather_than_configured(
 
 def test_a_fully_configured_environment_reports_nothing_missing(cfg: Path) -> None:
     assert _missing_settings() == []
+
+
+def test_missing_settings_accepts_jfs_bucket_url_in_place_of_r2_account_and_bucket(
+    cfg: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A self-hoster pointing at a generic S3/MinIO bucket sets JFS_BUCKET_URL
+    # instead of the Cloudflare-R2 account/bucket pair — either identifies the
+    # bucket, so neither R2_ACCOUNT_ID nor R2_BUCKET should be reported missing.
+    monkeypatch.setattr(bootstrap.settings, "R2_ACCOUNT_ID", None)
+    monkeypatch.setattr(bootstrap.settings, "R2_BUCKET", None)
+    monkeypatch.setattr(bootstrap.settings, "JFS_BUCKET_URL", "http://minio:9000/gaia-workspace")
+    assert _missing_settings() == []
+
+
+def test_missing_settings_still_requires_bucket_identification_without_jfs_bucket_url(
+    cfg: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bootstrap.settings, "R2_ACCOUNT_ID", None)
+    monkeypatch.setattr(bootstrap.settings, "R2_BUCKET", None)
+    monkeypatch.setattr(bootstrap.settings, "JFS_BUCKET_URL", None)
+    assert _missing_settings() == ["R2_ACCOUNT_ID", "R2_BUCKET"]
+
+
+def test_bucket_url_prefers_jfs_bucket_url_when_set(
+    cfg: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bootstrap.settings, "JFS_BUCKET_URL", "http://minio:9000/gaia-workspace")
+    assert _bucket_url() == "http://minio:9000/gaia-workspace"
+
+
+def test_bucket_url_falls_back_to_r2_derivation_when_jfs_bucket_url_unset(
+    cfg: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bootstrap.settings, "JFS_BUCKET_URL", None)
+    assert _bucket_url() == "https://acct123.r2.cloudflarestorage.com/gaia-workspaces"
 
 
 def test_the_shard_placeholder_is_substituted_into_the_meta_url(

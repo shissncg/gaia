@@ -37,7 +37,7 @@ import subprocess  # nosec B404 - JuiceFS CLI invocation
 import tempfile
 import threading
 import time
-from typing import Literal
+from typing import Literal, cast
 
 from app.config.settings import settings
 from app.constants.log_tags import LogTag
@@ -114,13 +114,17 @@ _bootstrap_thread: threading.Thread | None = None
 def _missing_settings() -> list[str]:
     """Return names of required settings that are still unset."""
     required = {
-        "R2_ACCOUNT_ID": settings.R2_ACCOUNT_ID,
-        "R2_BUCKET": settings.R2_BUCKET,
         "R2_ACCESS_KEY": settings.R2_ACCESS_KEY,
         "R2_SECRET_KEY": settings.R2_SECRET_KEY,
         "JUICEFS_META_URL_TEMPLATE": settings.JUICEFS_META_URL_TEMPLATE,
     }
-    return [name for name, value in required.items() if not value]
+    missing = [name for name, value in required.items() if not value]
+    # The bucket can be identified either by a full S3-generic endpoint URL
+    # (JFS_BUCKET_URL) or by the Cloudflare-R2 account/bucket pair — mirrors
+    # the fallback in _bucket_url() below.
+    if not settings.JFS_BUCKET_URL and not (settings.R2_ACCOUNT_ID and settings.R2_BUCKET):
+        missing.extend(["R2_ACCOUNT_ID", "R2_BUCKET"])
+    return missing
 
 
 def _meta_url(shard: int = 0) -> str:
@@ -141,6 +145,8 @@ def _mask_meta(url: str) -> str:
 
 
 def _bucket_url() -> str:
+    if settings.JFS_BUCKET_URL:
+        return cast(str, settings.JFS_BUCKET_URL)
     return f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{settings.R2_BUCKET}"
 
 
