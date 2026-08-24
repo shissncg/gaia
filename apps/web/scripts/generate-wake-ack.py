@@ -31,7 +31,7 @@ def fetch_secret(client: InfisicalSDKClient, env: dict[str, str | None], name: s
     secret = client.secrets.get_secret_by_name(
         secret_name=name,
         project_id=env["INFISICAL_PROJECT_ID"],
-        environment_slug="production",
+        environment_slug=env.get("INFISICAL_ENV") or "production",
         secret_path="/",
     )
     return secret.secretValue
@@ -39,7 +39,7 @@ def fetch_secret(client: InfisicalSDKClient, env: dict[str, str | None], name: s
 
 def main() -> int:
     env = dotenv_values(API_ENV_PATH)
-    client = InfisicalSDKClient(host=env.get("INFISICAL_URL") or "https://app.infisical.com")
+    client = InfisicalSDKClient(host=env.get("INFISICAL_HOST") or "https://app.infisical.com")
     client.auth.universal_auth.login(
         client_id=env["INFISICAL_MACHINE_IDENTITY_CLIENT_ID"],
         client_secret=env["INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET"],
