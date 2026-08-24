@@ -92,6 +92,7 @@ async function collectInfisicalEnv(
     INFISICAL_PROJECT_ID: string;
     INFISICAL_MACHINE_IDENTITY_CLIENT_ID: string;
     INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET: string;
+    INFISICAL_HOST: string;
   };
 
   envValues["INFISICAL_PROJECT_ID"] = infisicalConfig.INFISICAL_PROJECT_ID;
@@ -99,6 +100,11 @@ async function collectInfisicalEnv(
     infisicalConfig.INFISICAL_MACHINE_IDENTITY_CLIENT_ID;
   envValues["INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET"] =
     infisicalConfig.INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET;
+  // Leave the loaders' own default ("https://app.infisical.com") in place
+  // when the field is empty — writing an empty string would override it.
+  if (infisicalConfig.INFISICAL_HOST.trim()) {
+    envValues["INFISICAL_HOST"] = infisicalConfig.INFISICAL_HOST.trim();
+  }
 }
 
 async function collectManualEnv(
