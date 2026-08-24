@@ -205,6 +205,9 @@ services:
       ARTIFACT_DETECTION_MODE: accesslog
       # Self-hosted SearXNG — the unlimited last-resort search fallback.
       SEARXNG_BASE_URL: http://searxng:8080
+      # Shared embedding sidecar — stops this process loading its own
+      # ~1.8GB copy of the fastembed models in-process.
+      MEMORY_EMBEDDING_SIDECAR_URL: http://embedding-sidecar:8200
       # Self-host runs development-mode settings on purpose: ENV=production
       # requires the vendor's full SaaS key ring (see ProductionSettings) and
       # forces Infisical. Security posture that matters (cookie Secure flag,
@@ -305,6 +308,9 @@ services:
       ARTIFACT_DETECTION_MODE: accesslog
       # Self-hosted SearXNG — the unlimited last-resort search fallback.
       SEARXNG_BASE_URL: http://searxng:8080
+      # Shared embedding sidecar — stops this process loading its own
+      # ~1.8GB copy of the fastembed models in-process.
+      MEMORY_EMBEDDING_SIDECAR_URL: http://embedding-sidecar:8200
       # Self-host runs development-mode settings on purpose: ENV=production
       # requires the vendor's full SaaS key ring (see ProductionSettings) and
       # forces Infisical. Security posture that matters (cookie Secure flag,
@@ -395,6 +401,60 @@ services:
     networks:
       - gaia_network
 
+  # Embedding + reranking sidecar. Loads the fastembed models ONCE so the
+  # backend and worker share a single ~1.8GB copy instead of each loading their
+  # own. Reuses the gaia image; the app processes reach it via
+  # MEMORY_EMBEDDING_SIDECAR_URL=http://embedding-sidecar:8200. Always on
+  # (unlike dev's opt-in profiles) — memory is a core self-hosted feature.
+  embedding-sidecar:
+    container_name: embedding-sidecar
+    image: ${GAIA_API_IMAGE:-ghcr.io/theexperiencecompany/gaia:latest}
+    working_dir: /app/apps/api
+    environment:
+      # Wide-event identity — must equal the Promtail label (see prod compose).
+      GAIA_SERVICE_NAME: embedding-sidecar
+      PYTHONPATH: /app/apps/api
+      LOG_FORMAT: json
+      LOG_COLORIZE: "false"
+      UV_NO_SYNC: 1
+      # Persist the ~1.85GB model weights so repeated `compose up` runs don't
+      # re-download them (the prod sidecar does the same with a named volume).
+      MEMORY_MODEL_CACHE_DIR: /models
+      # Measured (scripts/sidecar_benchmark/): 2 ORT threads per inference
+      # matches 4-thread throughput at high concurrency while using less peak
+      # RSS. Concurrency stays adaptive (cores / threads).
+      MEMORY_ONNX_THREADS: 2
+    volumes:
+      - embedding_models:/models
+    expose:
+      - "8200"
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "app.services.embedding_sidecar.server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8200",
+      ]
+    restart: always
+    # Measured envelope (#918 fix): model floor ~1.9-2.1GB, peak under mixed
+    # load ~2.4GB (bounded batches keep activations flat regardless of request
+    # size). 2560m is a runaway ceiling with headroom; capping below ~2G would
+    # OOM-kill it (the model can't load in less). In prod swarm this is
+    # deploy.resources.limits instead.
+    mem_limit: 2560m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8200/health'); sys.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    networks:
+      - gaia_network
+
   # ---------------------------------------------------------------------------
   # MinIO — example S3-generic object store for JFS_BUCKET_URL, an alternative
   # to Cloudflare R2 for the JuiceFS workspace bucket. Object storage is a real
@@ -437,6 +497,7 @@ volumes:
   mongo_data:
   rabbitmq_data:
   juicefs_cache:
+  embedding_models:
   # Only used when the commented-out `minio` service above is enabled.
   minio_data:
 
