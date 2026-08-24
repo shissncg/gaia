@@ -298,6 +298,22 @@ class DodoPaymentService:
 
     async def get_user_subscription_status(self, user_id: str) -> UserSubscriptionStatus:
         """Get user subscription status."""
+        if settings.DEPLOYMENT_MODE == "self_hosted":
+            # is_subscribed=True is deliberate: every "upgrade" surface in the
+            # web app keys on it, so self-host hides them without a web change.
+            return UserSubscriptionStatus(
+                user_id=user_id,
+                current_plan=None,
+                subscription=None,
+                is_subscribed=True,
+                days_remaining=None,
+                can_upgrade=False,
+                can_downgrade=False,
+                has_subscription=False,
+                plan_type=PlanType.PRO,
+                status=SubscriptionStatus.ACTIVE,
+            )
+
         subscription = await subscription_repository.get_active_for_user(user_id)
 
         if not subscription:
@@ -477,6 +493,11 @@ class DodoPaymentService:
 
     async def get_cached_plan_type(self, user_id: str) -> PlanType:
         """Plan tier, Redis-cached for hot paths; eventually consistent within the TTL."""
+        # Self-hosted deployments have no billing: every user is PRO by fiat.
+        # Short-circuit before Redis so the plan cache is never even consulted.
+        if settings.DEPLOYMENT_MODE == "self_hosted":
+            return PlanType.PRO
+
         cache_key = f"{SUBSCRIPTION_PLAN_CACHE_PREFIX}{user_id}"
         cached = await redis_cache.get(cache_key)
         if isinstance(cached, dict) and cached.get("plan_type"):

@@ -25,6 +25,12 @@ import pytest
 # ---------------------------------------------------------------------------
 
 os.environ["ENV"] = "development"
+# Pin the suite to cloud billing behavior. Phase 1 defaults DEPLOYMENT_MODE to
+# "self_hosted" for this fork, which would silently flip every billing/limits
+# test in the suite to self-hosted behavior (e.g. free-tier rate limiting).
+# The existing suite tests cloud behavior; self-host tests opt in via
+# monkeypatch on `settings.DEPLOYMENT_MODE`.
+os.environ["DEPLOYMENT_MODE"] = "cloud"
 # Force the dev auth bypass OFF for the suite: a machine set up for agent-driven
 # e2e has DEV_AUTH_BYPASS_EMAIL in apps/api/.env, which would short-circuit
 # WorkOSAuthMiddleware — including in the tests that exercise that middleware.
