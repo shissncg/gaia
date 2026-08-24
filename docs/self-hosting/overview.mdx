@@ -18,8 +18,9 @@ Run GAIA on your own machine with the GAIA CLI. It scaffolds your environment, s
 
 - Node.js 20+ and one package manager (npm, pnpm, or bun)
 - Docker Engine 20.10+ and Compose v2+
-- 2+ CPU cores, 4GB+ RAM, 10GB+ disk (8GB+ RAM recommended)
-- An API key for at least one supported LLM provider (OpenAI or Google Gemini), see [Environment variables](/configuration/environment-variables)
+- 2+ CPU cores, 10GB+ disk, **8GB+ RAM recommended** — the shared embedding sidecar alone measures ~1.9–2.4GB RSS (model floor to peak load), and infra + sidecar together measured ~2.5GB on a running stack; 8GB leaves headroom once `gaia-backend`, `gaia-web`, and `arq_worker` are added (their own footprint wasn't re-measured for this guide — 8GB is the safe floor, not a hard minimum verified down to the last MB)
+- `OPENROUTER_API_KEY` — the seeded default chat model runs on **OpenRouter**, not OpenAI, and no OpenAI model is seeded. Get a key at [openrouter.ai](https://openrouter.ai)
+- `GOOGLE_API_KEY` — memory embeddings and vision run on **Google Gemini**. Get a key at [Google AI Studio](https://aistudio.google.com/apikey)
 - A WorkOS account (free tier) — see [Authentication](/self-hosting/authentication)
 - A [Cloudinary](https://cloudinary.com) account (free tier works) — see [Media storage](#media-storage) below
 
