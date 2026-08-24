@@ -134,6 +134,17 @@ services:
       # forces Infisical. Security posture that matters (cookie Secure flag,
       # /docs exposure) is decoupled from ENV — see phase 2.
       ENV: development
+      # In-stack infrastructure is always these compose containers, so pin
+      # container hostnames here (same pattern as the dev compose). .env's
+      # localhost URLs are for native runs and are unreachable from inside
+      # the compose network — without these overrides a stock .env (copied
+      # from .env.example) makes every service die on connection refused.
+      MONGO_DB: mongodb://mongo:27017/
+      REDIS_URL: redis://redis:6379/0
+      POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/langgraph
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: "8000"
     ports:
       - "${API_HOST_PORT:-8000}:8000"
     # JuiceFS mounts via FUSE inside the container, which requires the mount
@@ -227,6 +238,14 @@ services:
       # forces Infisical. Security posture that matters (cookie Secure flag,
       # /docs exposure) is decoupled from ENV — see phase 2.
       ENV: development
+      # In-stack infra container hostnames — see gaia-backend for why.
+      # asyncpg-style URL matches the dev compose's arq_worker.
+      MONGO_DB: mongodb://mongo:27017/
+      REDIS_URL: redis://redis:6379/0
+      POSTGRES_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/langgraph
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      CHROMADB_HOST: chromadb
+      CHROMADB_PORT: "8000"
     # Python deps are installed system-wide via UV_PROJECT_ENVIRONMENT=/usr/local
     # in the API Dockerfile, so call python directly. `uv run` would try to
     # rewrite /app/uv.lock and fail (Permission denied) under the non-root
@@ -271,6 +290,9 @@ services:
       # forces Infisical. Security posture that matters (cookie Secure flag,
       # /docs exposure) is decoupled from ENV — see phase 2.
       ENV: development
+      # In-stack infra container hostnames — see gaia-backend for why.
+      MONGO_DB: mongodb://mongo:27017/
+      REDIS_URL: redis://redis:6379/0
     # Same reason as arq_worker: drop the `uv run` wrapper so we don't hit
     # the Permission denied on /app/uv.lock as appuser.
     command: ["python", "scripts/seed_models.py", "--force"]
@@ -298,6 +320,9 @@ services:
       # forces Infisical. Security posture that matters (cookie Secure flag,
       # /docs exposure) is decoupled from ENV — see phase 2.
       ENV: development
+      # In-stack infra container hostnames — see gaia-backend for why.
+      MONGO_DB: mongodb://mongo:27017/
+      REDIS_URL: redis://redis:6379/0
     # Same reason as arq_worker: drop the `uv run` wrapper so we don't hit
     # the Permission denied on /app/uv.lock as appuser.
     command: ["python", "scripts/payment_setup.py", "--selfhost"]
