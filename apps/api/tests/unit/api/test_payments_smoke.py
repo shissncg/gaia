@@ -12,6 +12,7 @@ Covers:
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from httpx import AsyncClient
 
 from app.models.payment_models import (
@@ -22,6 +23,30 @@ from tests.conftest import FAKE_USER
 
 PAYMENT_SVC = "app.api.v1.endpoints.payments.payment_service"
 WEBHOOK_SVC = "app.api.v1.endpoints.payments.payment_webhook_service"
+
+
+class TestRouterMountedInEveryMode:
+    """Regression: the payments router must mount in self_hosted mode too.
+
+    The web's useUserSubscriptionStatus reads /payments/subscription-status to
+    decide whether to show upgrade UI; conditionally unmounting the router
+    404'd it, the hook's undefined status read as unsubscribed, and the
+    sidebar's "Upgrade to Pro" promo reappeared on a live self-hosted deploy.
+    Mode-specific behavior belongs inside the endpoints (the waist answers
+    PRO; Dodo-touching handlers raise via _require_client), never at the
+    mount. Import-time settings cannot be re-patched here, so the assertion
+    is on the mounted route table itself.
+    """
+
+    @pytest.mark.regression
+    async def test_subscription_status_answers_not_404(self, client: AsyncClient):
+        response = await client.get("/api/v1/payments/subscription-status")
+        assert response.status_code != 404, (
+            "payments router is not mounted — the web's subscription hook "
+            "gets no status and upgrade UI reappears on self-hosted deploys"
+        )
+        assert response.status_code == 200
+
 
 _NOW = datetime.now(UTC)
 

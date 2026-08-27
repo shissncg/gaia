@@ -47,7 +47,6 @@ from app.api.v1.endpoints import (
     workflows,
 )
 from app.api.v1.endpoints.integrations import router as integrations_router
-from app.config.settings import settings
 
 router = APIRouter()
 
@@ -83,10 +82,14 @@ router.include_router(triggers.router, tags=["Triggers"])
 router.include_router(reminders.router, tags=["Reminders"])
 router.include_router(skills.router, tags=["Skills"])
 router.include_router(support.router, tags=["Support"])
-# Self-hosted deployments have no Dodo account: no checkout/subscription API,
-# and no /payments/webhooks/dodo endpoint to receive events nobody sends.
-if settings.DEPLOYMENT_MODE != "self_hosted":
-    router.include_router(payments.router, prefix="/payments", tags=["Payments"])
+# Mounted in EVERY deployment mode, self-hosted included: the web app reads
+# /payments/subscription-status and /payments/plans to decide whether to show
+# upgrade UI, and in self-hosted mode those answer from the PRO-by-fiat waist
+# (unmounting them made the sidebar promo REAPPEAR — the hook's undefined
+# status reads as unsubscribed). The Dodo-touching endpoints guard themselves:
+# _require_client raises a clean 502 without a client, and the webhook
+# verifier fails closed without DODO_WEBHOOK_PAYMENTS_SECRET.
+router.include_router(payments.router, prefix="/payments", tags=["Payments"])
 router.include_router(usage.router, tags=["Usage"])
 router.include_router(tools.router, tags=["Tools"])
 router.include_router(models.router, tags=["Models"])
