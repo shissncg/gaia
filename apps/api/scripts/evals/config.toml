@@ -24,9 +24,9 @@ discount_pct = 90.0  # Nous Research promotional credit
 
 [providers.opencode]
 lane = "custom"
-base_url_env = "DEV_LLM_BASE_URL"
-api_key_env = "DEV_LLM_API_KEY"
-model_env = "DEV_LLM_MODEL"
+base_url_env = "LLM_BASE_URL"
+api_key_env = "LLM_API_KEY"
+model_env = "LLM_MODEL_NAME"
 budget_usd = 0.0
 price_in_per_1m = 0.14
 price_out_per_1m = 0.28
@@ -56,6 +56,6 @@ order = ["nous", "opencode", "openrouter", "gemini"]
 default_max_usd = 8.0
 
 [judge]
-base_url_env = "DEV_LLM_BASE_URL"
-api_key_env = "DEV_LLM_API_KEY"
+base_url_env = "LLM_BASE_URL"
+api_key_env = "LLM_API_KEY"
 model_env = "JUDGE_MODEL"

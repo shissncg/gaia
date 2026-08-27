@@ -122,7 +122,13 @@ class SettingsValidator:
             SettingsGroup(
                 name="WorkOS Authentication",
                 keys=["WORKOS_API_KEY", "WORKOS_CLIENT_ID", "WORKOS_COOKIE_PASSWORD"],
-                description="WorkOS authentication service",
+                description=(
+                    "WorkOS authentication service. After setup, register "
+                    "<HOST>/api/v1/oauth/workos/callback as a Redirect URI in the "
+                    "WorkOS dashboard (plus /desktop/callback and /mobile/callback "
+                    "variants if you use those apps). WORKOS_COOKIE_PASSWORD must "
+                    "be 32+ characters."
+                ),
                 affected_features="User authentication, login, and session management",
                 all_required=True,
                 docs_url="https://workos.com/docs/reference/api-keys",

@@ -1,0 +1,138 @@
+---
+title: "Production Domain"
+sidebarTitle: "Production Domain"
+description: "Serve GAIA behind a real domain or tunnel: reverse proxy, env vars, cookies, and WorkOS"
+icon: "globe"
+---
+
+The [Docker Setup](/self-hosting/docker-setup) guide gets GAIA running on `localhost`. This page covers everything that changes when you put it behind a real domain — `gaia.example.com` for the web app, `api.gaia.example.com` for the API — or behind a tunnel like Cloudflare Tunnel or Tailscale.
+
+<Note>
+  Changing `NEXT_PUBLIC_API_BASE_URL` only needs a container **restart**, not
+  a rebuild. The web image bakes a placeholder URL and rewrites it from
+  runtime env at container start (`docker-entrypoint.sh`) — see the last
+  section below.
+</Note>
+
+## Reverse proxy
+
+Put a TLS-terminating proxy in front of both origins. Each proxies to the host ports the self-host Compose stack already publishes (`3000` for web, `8000` for the API) — nothing in GAIA itself needs to change.
+
+<Tabs>
+  <Tab title="Caddy">
+    Caddy gets you automatic TLS (via Let's Encrypt) with no extra configuration. Save this as `Caddyfile`:
+
+    ```caddyfile
+    gaia.example.com {
+        reverse_proxy localhost:3000
+    }
+
+    api.gaia.example.com {
+        reverse_proxy localhost:8000
+    }
+    ```
+
+    ```bash
+    caddy run --config Caddyfile
+    ```
+
+    Caddy issues and renews certificates for both hostnames automatically the first time it starts, as long as DNS for both already points at this host.
+  </Tab>
+
+  <Tab title="nginx">
+    nginx needs certificates issued separately (e.g. via `certbot`). A minimal config for both origins:
+
+    ```nginx
+    server {
+        listen 443 ssl;
+        server_name gaia.example.com;
+
+        ssl_certificate     /etc/letsencrypt/live/gaia.example.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/gaia.example.com/privkey.pem;
+
+        location / {
+            proxy_pass http://localhost:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # WebSocket upgrade — required for the chat stream connection.
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+
+    server {
+        listen 443 ssl;
+        server_name api.gaia.example.com;
+
+        ssl_certificate     /etc/letsencrypt/live/api.gaia.example.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/api.gaia.example.com/privkey.pem;
+
+        location / {
+            proxy_pass http://localhost:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Environment variables to change
+
+Everything below is runtime configuration — no image rebuild required for any of it.
+
+| Variable | File | Value for the example above |
+| --- | --- | --- |
+| `HOST` | `apps/api/.env` | `https://api.gaia.example.com` |
+| `FRONTEND_URL` | `apps/api/.env` | `https://gaia.example.com` |
+| `NEXT_PUBLIC_API_BASE_URL` | `infra/docker/.env` | `https://api.gaia.example.com/api/v1/` |
+| `CORS_ALLOWED_ORIGINS` | `apps/api/.env` | Only if the web app is served from more than one origin (e.g. `https://gaia.example.com,https://www.gaia.example.com`) — `FRONTEND_URL` is always allowed and doesn't need repeating here |
+| `COOKIE_DOMAIN` | `apps/api/.env` | Only for a cross-subdomain setup — see below |
+| `EXPOSE_API_DOCS` | `apps/api/.env` | `false` recommended on a public domain |
+
+<Note>
+  `NEXT_PUBLIC_API_BASE_URL` lives in `infra/docker/.env` (it feeds the
+  `gaia-web` container's runtime env, applied by `docker-entrypoint.sh`) —
+  not `NEXT_PUBLIC_APP_URL`, which the self-host Compose path does not use at
+  all.
+</Note>
+
+Restart the web container to pick up the new API URL, no rebuild:
+
+```bash
+docker compose -f docker-compose.selfhost.yml up -d gaia-web
+```
+
+### WorkOS redirect URI
+
+`HOST` also drives WorkOS's computed callback URL: `WORKOS_REDIRECT_URI` resolves to `{HOST}/api/v1/oauth/workos/callback`. Once you set `HOST` to `https://api.gaia.example.com`, update the redirect URI in your WorkOS dashboard to `https://api.gaia.example.com/api/v1/oauth/workos/callback` — see [Authentication](/self-hosting/authentication) for the full WorkOS setup.
+
+## Cookies need a shared registrable domain
+
+The session cookie (`wos_session`) is set by the API and read by the browser on requests the web app makes back to the API. Browsers only send a cookie back to origins that share its `Domain`, so **web and API must share a registrable domain** (subdomains are fine — `gaia.example.com` and `api.gaia.example.com` both belong to `example.com`).
+
+- Two completely unrelated domains (`gaia.example.com` and `api.otherdomain.com`) cannot share a cookie under normal `SameSite=lax` rules — login will silently fail to persist.
+- If you deliberately want to serve the API from an unrelated domain, set `COOKIE_SAMESITE=none` **and** ensure `COOKIE_SECURE` is true (derived automatically once `HOST` is `https://`) — browsers reject `SameSite=None` cookies that aren't `Secure`. This is a narrow, deliberate configuration, not the default path.
+- For same-registrable-domain subdomain setups, `COOKIE_DOMAIN` is optional — a host-only cookie already works because the browser sends it back to the API subdomain regardless. Set `COOKIE_DOMAIN=.example.com` only if you need the cookie shared with other subdomains beyond web and API.
+
+## Tunnels (Cloudflare Tunnel, Tailscale)
+
+A tunnel that exposes only the API — leaving the web app on `localhost` — breaks login: the browser loads the web app from `localhost` but the API's `Set-Cookie` comes from the tunnel's domain, a cross-site response the browser won't attach to same-site requests under the default `SameSite=lax` policy.
+
+Tunnel **both origins**, the same way you would with a reverse proxy:
+
+```bash
+# Two separate tunnels, one per origin
+cloudflared tunnel --url http://localhost:3000 --hostname gaia.example.com
+cloudflared tunnel --url http://localhost:8000 --hostname api.gaia.example.com
+```
+
+Alternatively, route both through a single tunnel path-based (e.g. `/api/*` to port 8000, everything else to port 3000) if your tunnel provider supports path routing — the cookie constraint above still applies either way.
+
+Tailscale works the same way in principle: expose both the web and API ports on the tailnet (or behind Tailscale Serve/Funnel) rather than only the API.

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import JsonLd from "@/components/seo/JsonLd";
 import type { Plan } from "@/features/pricing/api/pricingApi";
 import PricingPage from "@/features/pricing/components/PricingPage";
 import { getPlansServer } from "@/features/pricing/lib/serverPricingApi";
+import { IS_SELF_HOSTED } from "@/lib/deployment";
 import { faqData } from "@/lib/faq";
 import { pricingFAQs } from "@/lib/page-faqs";
 import {
@@ -36,6 +38,11 @@ export const metadata: Metadata = generatePageMetadata({
 export const revalidate = 86400; // Revalidate every 24 hours (ISR)
 
 export default async function Pricing() {
+  // Self-hosted deployments have no billing: there is nothing to price.
+  if (IS_SELF_HOSTED) {
+    redirect("/");
+  }
+
   const productSchema = generateProductSchema();
   const webPageSchema = generateWebPageSchema(
     "Pricing",

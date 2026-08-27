@@ -3,6 +3,7 @@
 import { Alert01Icon, CheckmarkBadge01Icon, Timer02Icon } from "@icons";
 import { formatPlanName } from "@shared/utils";
 import type { ReactNode } from "react";
+import { IS_SELF_HOSTED } from "@/lib/deployment";
 import { toast } from "@/lib/toast";
 import { usePricingModalStore } from "@/stores/pricingModalStore";
 
@@ -64,7 +65,9 @@ function buildRateLimitMessage({
 export const showRateLimitToast = ({
   title = "Rate Limit Reached",
   message,
-  showUpgradeButton = true,
+  // Self-hosted has no billing to upgrade into — this toast renders straight
+  // off the 429 payload, independent of plan state, so it needs its own gate.
+  showUpgradeButton = !IS_SELF_HOSTED,
   resetTime,
   feature,
   planRequired,
@@ -119,7 +122,7 @@ export const showFeatureRestrictedToast = (
     title: "Feature Restricted",
     feature,
     planRequired,
-    showUpgradeButton: true,
+    showUpgradeButton: !IS_SELF_HOSTED,
   });
 };
 
@@ -130,6 +133,6 @@ export const showTokenLimitToast = (feature: string, planRequired?: string) => {
       ? `${feature} token limit exceeded. Upgrade to ${formatPlanName(planRequired)} for higher token limits.`
       : `${feature} token limit exceeded. Please wait or upgrade for higher limits.`,
     planRequired,
-    showUpgradeButton: !!planRequired,
+    showUpgradeButton: !IS_SELF_HOSTED && !!planRequired,
   });
 };

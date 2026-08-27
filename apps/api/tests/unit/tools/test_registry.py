@@ -337,6 +337,17 @@ class TestBillingCategory:
         assert all(tool.destructive is False for tool in category.tools)
         assert category.internal is False
 
+    def test_self_hosted_deployments_get_no_billing_category(self):
+        """Self-hosted has no Dodo account: the agent must not be handed tools
+        whose only outputs are checkout links and subscription status."""
+        from app.agents.tools.core import registry as registry_module
+
+        with patch.object(registry_module.settings, "DEPLOYMENT_MODE", "self_hosted"):
+            registry = ToolRegistry()
+            registry._initialize_categories()
+
+        assert registry.get_category("billing") is None
+
 
 def _patch_initialize_categories():
     """

@@ -96,6 +96,6 @@ promtail     → loki (healthy)
 - **RabbitMQ requires `observability/rabbitmq-enabled-plugins`** to be present (in dev compose). This file enables the Prometheus plugin.
 - **Grafana default credentials**: admin / changeme (dev), admin / `$GRAFANA_ADMIN_PASSWORD` (prod). Set `GRAFANA_ADMIN_PASSWORD` in `.env` before production deployment.
 - **PostgreSQL database name is `langgraph`** (not `gaia` or `postgres`).
-- **`seed-models` service** in selfhost compose runs once (`restart: "no"`) to populate MongoDB with default model configs — it is not a persistent service.
+- **`seed-models` and `seed-plans` services** in selfhost compose each run once (`restart: "no"`) — `seed-models` populates MongoDB with default model configs, `seed-plans` runs `payment_setup.py --selfhost` to seed subscription plans without a Dodo account. Neither is a persistent service; `gaia-backend` and `arq_worker` both `depends_on` them with `condition: service_completed_successfully` so the API never races the boot-gate check (`validate_startup_requirements`) against seeding.
 - **Voice agent caches HuggingFace models** in the `voice_agent_models` named volume. First start downloads models and is slow. In prod, `HF_HUB_OFFLINE=1` prevents re-downloads.
 - Port conflicts: ChromaDB uses port 8000 internally but exposes 8080 on the host specifically to avoid colliding with the API's host port 8000.

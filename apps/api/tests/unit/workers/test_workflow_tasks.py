@@ -7,9 +7,17 @@ from uuid import uuid4
 from bson import ObjectId
 import pytest
 
-from app.api.v1.middleware.tiered_rate_limiter import RateLimitExceededException
+from app.api.v1.middleware.tiered_rate_limiter import (
+    CostBudgetExceededException,
+    RateLimitExceededException,
+)
 from app.constants.notifications import CHANNEL_TYPE_INAPP
-from app.models.notification.notification_models import ActionType, NotificationSourceEnum
+from app.models.notification.notification_models import (
+    ActionStyle,
+    ActionType,
+    NotificationSourceEnum,
+)
+from app.models.payment_models import PlanType
 from app.services.analytics_service import AnalyticsEvents
 from app.services.workflow.notifications import (
     send_workflow_completion_notification,
@@ -17,6 +25,7 @@ from app.services.workflow.notifications import (
 )
 from app.utils.errors import AppError
 from app.workers.tasks.workflow_tasks import (
+    _rate_limit_failure_content,
     execute_workflow_as_chat,
     execute_workflow_by_id,
     generate_workflow_steps,
@@ -1457,6 +1466,141 @@ class TestExecuteWorkflowByIdNotifications:
         mock_complete_exec.assert_awaited_once()
         call_kwargs = mock_complete_exec.call_args.kwargs
         assert call_kwargs["conversation_id"] == "conv_123"
+
+
+class TestRateLimitFailureContentSelfHosted:
+    """Self-hosted has no billing: the blocked-run notification must not pitch
+    an upgrade, independent of ``schedule_limit_upsell`` — this copy is built
+    straight from the exception detail, not through that seam."""
+
+    async def test_self_hosted_drops_the_pitch_and_the_action(self) -> None:
+        from app.workers.tasks import workflow_tasks as workflow_tasks_module
+
+        workflow = _make_workflow()
+        error = RateLimitExceededException(
+            feature="trigger_workflow_executions",
+            plan_required="pro",
+            reset_time=datetime(2026, 3, 21, 12, 0, 0, tzinfo=UTC),
+            current_plan="free",
+        )
+
+        with patch.object(workflow_tasks_module.settings, "DEPLOYMENT_MODE", "self_hosted"):
+            body, upgrade_action = await workflow_tasks_module._rate_limit_failure_content(
+                error, workflow
+            )
+
+        assert "Upgrade" not in body
+        assert upgrade_action is None
+
+    async def test_cloud_mode_still_pitches_a_free_user(self) -> None:
+        """Sanity check: the cloud behavior this test suite protects."""
+        from app.workers.tasks import workflow_tasks as workflow_tasks_module
+
+        workflow = _make_workflow()
+        error = RateLimitExceededException(
+            feature="trigger_workflow_executions",
+            plan_required="pro",
+            reset_time=datetime(2026, 3, 21, 12, 0, 0, tzinfo=UTC),
+            current_plan="free",
+        )
+
+        with patch.object(workflow_tasks_module.settings, "DEPLOYMENT_MODE", "cloud"):
+            body, upgrade_action = await workflow_tasks_module._rate_limit_failure_content(
+                error, workflow
+            )
+
+        assert "Upgrade to Pro" in body
+        assert upgrade_action is not None
+
+
+# ---------------------------------------------------------------------------
+# _rate_limit_failure_content — direct coverage of the copy/action builder
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitFailureContent:
+    """Direct tests for `_rate_limit_failure_content`, which the
+    `TestExecuteWorkflowByIdNotifications` tests above only exercise through
+    the full `execute_workflow_by_id` flow with a fixed plan_required="pro"
+    and no current_plan — never a Pro user, a custom plan_required value, a
+    CostBudgetExceededException, or an error with no `.detail` at all."""
+
+    async def test_plan_gated_free_user_gets_full_upgrade_action(self):
+        """No reset_time and no plan_required: plan-gated copy naming the
+        default (Pro) plan, plus a fully-specified redirect action."""
+        workflow = _make_workflow()
+        error = RateLimitExceededException(feature="trigger_workflow_executions")
+
+        body, action = await _rate_limit_failure_content(error, workflow)
+
+        assert body == (
+            f"'{workflow.title}' couldn't run — automated workflow execution "
+            f"is not available on your current plan. Upgrade to Pro to unlock this feature."
+        )
+        assert action is not None
+        assert action.type == ActionType.REDIRECT
+        assert action.label == "Upgrade to Pro"
+        assert action.style == ActionStyle.PRIMARY
+        assert action.config.redirect is not None
+        assert action.config.redirect.url == "/settings?section=subscription"
+        assert action.config.redirect.open_in_new_tab is False
+        assert action.config.redirect.close_notification is True
+
+    async def test_pro_user_gets_no_upgrade_pitch_or_action(self):
+        """A user already on Pro gets the reset-time copy with no upgrade
+        sentence appended and no action — nothing left to upgrade to."""
+        workflow = _make_workflow()
+        error = RateLimitExceededException(
+            feature="trigger_workflow_executions",
+            reset_time=datetime(2026, 3, 21, 12, 0, 0, tzinfo=UTC),
+            current_plan=PlanType.PRO.value,
+        )
+
+        body, action = await _rate_limit_failure_content(error, workflow)
+
+        assert "Upgrade" not in body
+        assert action is None
+
+    async def test_custom_plan_required_names_that_plan_not_pro(self):
+        """plan_required flows into both the body and the action label
+        verbatim (capitalized) — it is not hardcoded to Pro."""
+        workflow = _make_workflow()
+        error = RateLimitExceededException(
+            feature="trigger_workflow_executions", plan_required="premium"
+        )
+
+        body, action = await _rate_limit_failure_content(error, workflow)
+
+        assert "Upgrade to Premium to unlock this feature." in body
+        assert action is not None
+        assert action.label == "Upgrade to Premium"
+
+    async def test_cost_budget_free_user_appends_upgrade_sentence(self):
+        """CostBudgetExceededException gets its own body (not the quota-reset
+        or plan-gated copy) with the upgrade sentence appended in place."""
+        workflow = _make_workflow()
+        error = CostBudgetExceededException(feature="ai_usage")
+
+        body, action = await _rate_limit_failure_content(error, workflow)
+
+        assert body == (
+            f"'{workflow.title}' couldn't run — you're out of AI usage for today. "
+            f"It will run again after your usage resets. Upgrade to Pro for much higher limits."
+        )
+        assert action is not None
+
+    async def test_error_without_detail_attribute_falls_back_gracefully(self):
+        """`error.detail` is read via getattr with a None default because the
+        function accepts a bare Exception — an error with no `.detail` at all
+        must not raise, and reads as the plan-gated/free-user case."""
+        workflow = _make_workflow()
+        error = ValueError("no detail attribute on this one")
+
+        body, action = await _rate_limit_failure_content(error, workflow)
+
+        assert "not available on your current plan" in body
+        assert "Upgrade to Pro" in body
+        assert action is not None
 
 
 # ---------------------------------------------------------------------------

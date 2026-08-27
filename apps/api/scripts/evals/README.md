@@ -80,7 +80,7 @@ usage through the app's callback seam.
 
 ## Config & env
 
-- `apps/api/.env` — provider keys (`NOUS_*`, `DEV_LLM_*` = opencode-go lane).
+- `apps/api/.env` — provider keys (`NOUS_*`, `LLM_*` = opencode-go lane).
 - `scripts/evals/.env.opik` (gitignored) — Opik URL/key.
 - `EVALS_DEV_API_BASE` (default `http://localhost:9460`) — live-API suites
   need the API running with `DEV_AUTH_BYPASS_EMAIL` + `DEV_UNLIMITED_RATE_LIMITS=1`

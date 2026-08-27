@@ -58,25 +58,30 @@ class TestInjectInfisicalSecretsDev:
         assert missing_key in mock_log.warning.call_args.args[0]
 
     @patch("shared.py.secrets.log")
-    def test_default_env_is_production(self, mock_log: MagicMock):
-        """When ENV is not set at all, it defaults to 'production'."""
+    def test_no_config_skips_even_when_env_defaults_to_production(self, mock_log: MagicMock):
+        """When ENV is not set at all, it defaults to 'production' — but zero
+        Infisical vars skips (and logs) rather than raising in every
+        environment, per locked decision #4."""
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(InfisicalConfigError):
-                inject_infisical_secrets()
+            inject_infisical_secrets()
+        mock_log.info.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
-# Production — raises InfisicalConfigError on missing config
+# Production — partial config still raises; zero config no longer does
 # ---------------------------------------------------------------------------
 
 
 class TestInjectInfisicalSecretsProd:
-    """In production, missing Infisical config should raise InfisicalConfigError."""
+    """In production, incomplete Infisical config still raises. Zero config
+    skips just like dev (locked decision #4: the production raise for the
+    zero-vars case is removed entirely)."""
 
-    def test_no_config_raises(self):
+    @patch("shared.py.secrets.log")
+    def test_no_config_skips_with_explicit_env_production(self, mock_log: MagicMock):
         with patch.dict(os.environ, {"ENV": "production"}, clear=True):
-            with pytest.raises(InfisicalConfigError, match="required in production"):
-                inject_infisical_secrets()
+            inject_infisical_secrets()
+        mock_log.info.assert_called_once()
 
     @pytest.mark.parametrize("missing_key", _ALL_ENV_KEYS)
     def test_missing_key_raises(self, missing_key: str):
@@ -85,6 +90,14 @@ class TestInjectInfisicalSecretsProd:
             with pytest.raises(InfisicalConfigError) as exc_info:
                 inject_infisical_secrets()
             assert missing_key in str(exc_info.value)
+
+    def test_partial_config_still_raises_in_production(self):
+        """Behavior unchanged by this task: partial config keeps the door
+        shut in production even though zero config now opens it."""
+        env = _env_without("INFISICAL_PROJECT_ID")
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(InfisicalConfigError):
+                inject_infisical_secrets()
 
     def test_empty_string_treated_as_missing(self):
         env = {**_FULL_ENV, "INFISICAL_PROJECT_ID": ""}
@@ -175,7 +188,27 @@ class TestInjectInfisicalSecretsSuccess:
         )
 
     @patch("shared.py.secrets.log")
+    def test_sdk_client_honors_infisical_host(self, mock_log: MagicMock):
+        mock_client = MagicMock()
+        mock_client.secrets.list_secrets.return_value = SimpleNamespace(secrets=[])
+        mock_sdk_class = MagicMock(return_value=mock_client)
+
+        env = {**_FULL_ENV, "INFISICAL_HOST": "https://infisical.internal.example.com"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch.dict(
+                "sys.modules", {"infisical_sdk": MagicMock(InfisicalSDKClient=mock_sdk_class)}
+            ):
+                inject_infisical_secrets()
+
+        mock_sdk_class.assert_called_once_with(
+            host="https://infisical.internal.example.com",
+            cache_ttl=3600,
+        )
+
+    @patch("shared.py.secrets.log")
     def test_list_secrets_called_with_correct_params(self, mock_log: MagicMock):
+        """_FULL_ENV sets ENV=production and no INFISICAL_ENV, so this also
+        covers the slug-defaults-to-ENV case (environment_slug="production")."""
         mock_client = MagicMock()
         mock_client.secrets.list_secrets.return_value = SimpleNamespace(secrets=[])
         mock_sdk_class = MagicMock(return_value=mock_client)
@@ -189,6 +222,29 @@ class TestInjectInfisicalSecretsSuccess:
         mock_client.secrets.list_secrets.assert_called_once_with(
             project_id="proj-abc",
             environment_slug="production",
+            secret_path="/",
+            expand_secret_references=True,
+            view_secret_value=True,
+            recursive=False,
+            include_imports=True,
+        )
+
+    @patch("shared.py.secrets.log")
+    def test_list_secrets_uses_infisical_env_slug_when_set(self, mock_log: MagicMock):
+        mock_client = MagicMock()
+        mock_client.secrets.list_secrets.return_value = SimpleNamespace(secrets=[])
+        mock_sdk_class = MagicMock(return_value=mock_client)
+
+        env = {**_FULL_ENV, "INFISICAL_ENV": "selfhost"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch.dict(
+                "sys.modules", {"infisical_sdk": MagicMock(InfisicalSDKClient=mock_sdk_class)}
+            ):
+                inject_infisical_secrets()
+
+        mock_client.secrets.list_secrets.assert_called_once_with(
+            project_id="proj-abc",
+            environment_slug="selfhost",
             secret_path="/",
             expand_secret_references=True,
             view_secret_value=True,

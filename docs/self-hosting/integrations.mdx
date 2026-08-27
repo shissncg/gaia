@@ -1,0 +1,60 @@
+---
+title: "Integrations"
+sidebarTitle: "Integrations"
+description: "Point GAIA's third-party integrations at your own Composio and MCP OAuth apps"
+icon: "puzzle-piece"
+---
+
+Most of GAIA's integrations (Gmail, Google Calendar, Slack, Notion's tool tier, and 50+ others) are managed through [Composio](https://composio.dev), which handles the OAuth dance and tool schemas for every connected app. The integration catalog in `oauth_config.py` ships with the vendor's own Composio auth config IDs (`ac_...`) baked in — those exist only in the vendor's Composio project, so a self-hoster's own `COMPOSIO_KEY` points at a project where those IDs don't exist and every connection attempt 404s.
+
+A separate, smaller tier of integrations (Notion documents, Figma, Vercel) connects through MCP with self-registered OAuth apps instead of Composio.
+
+## Composio integrations
+
+<Steps>
+  <Step title="Get your own Composio API key">
+    Sign up at [composio.dev](https://composio.dev) and create a project. Set the key:
+
+    ```bash
+    COMPOSIO_KEY=your_composio_api_key
+    ```
+  </Step>
+
+  <Step title="Create an auth config per toolkit">
+    In the Composio dashboard, create one **auth config** for each integration you want to enable (Gmail, Google Calendar, Slack, ...). Each auth config gets an ID that looks like `ac_xxxxxxxxxxxx`.
+  </Step>
+
+  <Step title="Map your auth config IDs with COMPOSIO_AUTH_CONFIGS">
+    Set `COMPOSIO_AUTH_CONFIGS` to a JSON object mapping each integration's id to your auth config id. Integration ids match the `id` field in `apps/api/app/config/oauth_config.py` (e.g. `gmail`, `googlecalendar`) — not the display name.
+
+    ```bash
+    COMPOSIO_AUTH_CONFIGS={"gmail": "ac_yourGmailCfg", "googlecalendar": "ac_yourCalendarCfg"}
+    ```
+
+    An integration whose auth config isn't in this map falls back to the vendor's default ID and will show as unavailable rather than failing at request time — add its entry once you've created the matching auth config.
+  </Step>
+</Steps>
+
+<Note>
+  `COMPOSIO_AUTH_CONFIGS` must be valid JSON when set — a malformed value fails loudly at startup rather than silently keeping the vendor's defaults, so a typo is easy to spot.
+</Note>
+
+## MCP-tier integrations (self-registered OAuth apps)
+
+Notion (document access), Figma, and Vercel connect through MCP rather than Composio and need their own OAuth app registered with each provider, plus a shared key to encrypt stored tokens:
+
+| Variable                   | Description                                    |
+| --------------------------- | ----------------------------------------------- |
+| `MCP_ENCRYPTION_KEY`        | Encryption key for stored MCP OAuth tokens       |
+| `VERCEL_MCP_CLIENT_ID`      | Vercel OAuth app client ID                       |
+| `NOTION_MCP_CLIENT_ID`      | Notion OAuth app client ID                       |
+| `NOTION_MCP_CLIENT_SECRET`  | Notion OAuth app client secret                   |
+| `FIGMA_MCP_CLIENT_ID`       | Figma OAuth app client ID                        |
+| `FIGMA_MCP_CLIENT_SECRET`   | Figma OAuth app client secret                    |
+
+Register an OAuth app with each provider you want to enable and point its redirect URI at your own `HOST` (see [Environment variables](/configuration/environment-variables) for the computed callback URL pattern). Leave a provider's variables unset to skip it — GAIA boots without them and only that provider's tools are unavailable.
+
+## Next steps
+
+- [Environment variables](/configuration/environment-variables), the full variable reference
+- [Docker setup](/self-hosting/docker-setup), advanced Docker operations and storage configuration

@@ -112,8 +112,35 @@ class CommonSettings(BaseAppSettings):
     # ----------------------------------------------
     # Environment & Deployment
     # ----------------------------------------------
+    # Cloud (heygaia.io) vs self-hosted deployment. Gates everything a
+    # self-hosted instance must not have: billing enforcement, plan-derived
+    # usage walls, upsell side effects, and the payments surface. The vendor's
+    # cloud deploys set DEPLOYMENT_MODE=cloud via their secret store; a fork
+    # defaults to self_hosted.
+    DEPLOYMENT_MODE: Literal["cloud", "self_hosted"] = "self_hosted"
+
     HOST: str = "https://api.heygaia.io"
     FRONTEND_URL: str = "https://heygaia.io"
+    # Extra CORS origins beyond FRONTEND_URL, comma-separated, e.g.
+    # "https://gaia.example.com,https://www.gaia.example.com". Must be explicit
+    # origins — the CORS layer runs with allow_credentials=True, under which
+    # a wildcard origin is silently ignored by Starlette.
+    CORS_ALLOWED_ORIGINS: str = ""
+    # Optional regex of additional allowed origins; overrides the built-in
+    # dev-only localhost regex when set.
+    CORS_ALLOWED_ORIGIN_REGEX: str | None = None
+    # Session-cookie policy. COOKIE_SECURE=None derives from the HOST scheme
+    # (https -> Secure) instead of ENV, so a self-hosted https deployment
+    # running development-mode settings still gets Secure cookies.
+    COOKIE_SECURE: bool | None = None
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
+    # Set to share the session across subdomains (e.g. ".example.com" when
+    # web and API live on different subdomains). Leave unset for host-only.
+    COOKIE_DOMAIN: str | None = None
+    # None = current behavior (docs exposed outside production). Set explicitly
+    # to decouple /docs exposure from ENV, e.g. a self-host running
+    # ENV=development on a public domain that wants EXPOSE_API_DOCS=false.
+    EXPOSE_API_DOCS: bool | None = None
     DUMMY_IP: str = "8.8.8.8"
     WORKER_TYPE: str = "unknown"
     ENABLE_LAZY_LOADING: bool = True
@@ -128,6 +155,15 @@ class CommonSettings(BaseAppSettings):
     # ----------------------------------------------
     # Key into the provider registry in app/services/email/providers.
     EMAIL_PROVIDER: str = "resend"
+
+    # SMTP delivery (EMAIL_PROVIDER=smtp). STARTTLS by default; set
+    # SMTP_STARTTLS=false only for a trusted-network relay.
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM: str | None = None
+    SMTP_STARTTLS: bool = True
 
     # ----------------------------------------------
     # Observability
@@ -172,19 +208,33 @@ class CommonSettings(BaseAppSettings):
         return max(CRAWL4AI_MIN_MAX_BROWSERS, parsed)
 
     # ----------------------------------------------
+    # Custom LLM endpoint (any OpenAI/OpenRouter-compatible server:
+    # OpenRouter alternates, vLLM, Ollama's OpenAI API, ...). All three must
+    # be set for the "custom" provider to register. Self-host: this is how
+    # you point the MAIN chat lane at your own model server. Note auxiliary
+    # tasks (follow-ups, workflow generation, ...) still use OpenRouter via
+    # get_default_llm, and memory embeddings still need GOOGLE_API_KEY.
+    # ----------------------------------------------
+    LLM_BASE_URL: str | None = None
+    LLM_API_KEY: str | None = None
+    LLM_MODEL_NAME: str | None = None
+
+    # ----------------------------------------------
     # Dev-only LLM overrides (honored only when ENV=development)
     # ----------------------------------------------
-    # Custom OpenRouter/OpenAI-compatible endpoint for cheap bulk dev/test usage
-    # (e.g. Nous Research's discounted DeepSeek lane). All three must be set; the
-    # "custom" provider is registered exclusively in development (see
-    # register_llm_providers), so these have no effect in production.
-    DEV_LLM_BASE_URL: str | None = None
-    DEV_LLM_API_KEY: str | None = None
-    DEV_LLM_MODEL: str | None = None
     # Default model for every dev request that doesn't pick one in the chat-header
     # selector — any DEV_MODEL_OPTIONS key from app/constants/llm.py ("custom" =
     # the endpoint above). An explicit selector choice still wins.
     DEV_DEFAULT_MODEL: str | None = None
+
+    # ----------------------------------------------
+    # Persistent Workspace Storage (R2 + JuiceFS)
+    # ----------------------------------------------
+    # Full S3-compatible bucket endpoint URL for the JuiceFS object store,
+    # e.g. "http://minio:9000/gaia-workspace" or an AWS S3 URL. When set it
+    # wins over the Cloudflare-R2 URL derived from R2_ACCOUNT_ID/R2_BUCKET.
+    # Credentials still come from R2_ACCESS_KEY/R2_SECRET_KEY (any S3 creds).
+    JFS_BUCKET_URL: str | None = None
 
     # ----------------------------------------------
     # GitHub Integration (for Skill Discovery)
@@ -194,6 +244,15 @@ class CommonSettings(BaseAppSettings):
     # - Gives 5,000 API requests/hour vs 60/hour without token
     # - Used for discovering and installing skills from GitHub
     GITHUB_TOKEN: str | None = None
+
+    # ----------------------------------------------
+    # Composio integration overrides (self-host)
+    # ----------------------------------------------
+    # JSON map of integration id -> Composio auth config id, overriding the
+    # vendor defaults baked into oauth_config.py. Self-hosters create one auth
+    # config per toolkit in their own Composio dashboard and map them here:
+    # COMPOSIO_AUTH_CONFIGS={"gmail": "ac_yourGmailCfg", "googlecalendar": "ac_..."}
+    COMPOSIO_AUTH_CONFIGS: str = ""
 
     # check_fields=False: E2B_DOMAIN is declared per-environment in the subclasses.
     # Rejected rather than stripped because the e2b SDK reads os.environ verbatim —
@@ -246,11 +305,20 @@ class CommonSettings(BaseAppSettings):
         """Discord OAuth callback URL."""
         return f"{self.HOST}/api/v1/platform-auth/discord/callback"
 
+    # Slack's OAuth redirect requires https; the override exists for
+    # vendor-local dev, where a redirectmeto.com proxy bridges that to a
+    # plain-http localhost callback. Set it in your personal .env, never in
+    # shipped config.
+    SLACK_OAUTH_REDIRECT_URI_OVERRIDE: str | None = None
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def SLACK_OAUTH_REDIRECT_URI(self) -> str:
         """Slack OAuth callback URL."""
-        return f"{self.HOST}/api/v1/platform-auth/slack/callback"
+        return (
+            self.SLACK_OAUTH_REDIRECT_URI_OVERRIDE
+            or f"{self.HOST}/api/v1/platform-auth/slack/callback"
+        )
 
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",
@@ -675,12 +743,6 @@ class DevelopmentSettings(CommonSettings):
     # ----------------------------------------------
     BOT_SESSION_TOKEN_SECRET: str | None = None  # Falls back to GAIA_BOT_API_KEY
     BOT_SESSION_TOKEN_EXPIRY_MINUTES: int = 15
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def SLACK_OAUTH_REDIRECT_URI(self) -> str:
-        """Slack OAuth callback URL using redirectmeto proxy for local development."""
-        return "https://redirectmeto.com/http://localhost:8000/api/v1/platform-auth/slack/callback"
 
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",

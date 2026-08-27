@@ -100,13 +100,18 @@ export function writeWebEnvFile(
   repoPath: string,
   mode: SetupMode,
   portOverrides?: Record<number, number>,
+  publicApiUrl?: string,
 ): void {
   const webEnvPath = path.join(repoPath, "apps", "web", ".env.local");
   backupIfExists(webEnvPath);
 
   // Parse existing .env to discover all vars
   const discoveredVars = parseWebEnv(repoPath);
-  const infraDefaults = getWebInfrastructureDefaults(mode, portOverrides);
+  const infraDefaults = getWebInfrastructureDefaults(
+    mode,
+    portOverrides,
+    publicApiUrl,
+  );
 
   const lines: string[] = [
     "# GAIA Web App Environment Configuration",
@@ -162,6 +167,7 @@ export function writeDockerComposeEnv(
   repoRoot: string,
   portOverrides: Record<number, number>,
   mode?: SetupMode,
+  publicApiUrl?: string,
 ): void {
   const envPath = path.join(repoRoot, "infra", "docker", ".env");
   backupIfExists(envPath);
@@ -181,13 +187,20 @@ export function writeDockerComposeEnv(
     }
   }
 
-  // In selfhost mode, write the web build arg so docker-compose.selfhost.yml
-  // can substitute it with the correct (possibly overridden) API port.
+  // In selfhost mode, write the browser-facing API URL that
+  // docker-entrypoint.sh applies at container start (see apps/web/Dockerfile
+  // + docker-compose.selfhost.yml — no rebuild needed to change this).
+  // publicApiUrl (from the wizard's PublicUrlsStep) wins when set; otherwise
+  // this falls back to localhost with the (possibly overridden) API port.
   if (mode === "selfhost") {
-    const apiPort = portOverrides[8000] ?? 8000;
+    const { NEXT_PUBLIC_API_BASE_URL } = getWebInfrastructureDefaults(
+      mode,
+      portOverrides,
+      publicApiUrl,
+    );
     lines.push("");
-    lines.push("# Web build args");
-    lines.push(`NEXT_PUBLIC_API_BASE_URL=http://localhost:${apiPort}/api/v1/`);
+    lines.push("# Web runtime env");
+    lines.push(`NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}`);
   }
 
   lines.push("");

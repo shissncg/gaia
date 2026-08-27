@@ -35,20 +35,27 @@ set -e
 # when the Infisical bootstrap creds are absent (self-host / contributor dev) —
 # the mount gate below then no-ops and the storage layer surfaces a clean
 # JuiceFSUnavailable instead of silently shadowing onto the overlay.
-# The mount in section 2 needs ALL of these; gate Infisical injection on the
-# whole set (any one missing → resolve) rather than R2_ACCESS_KEY alone, so a
-# partially populated env can't skip injection and then fail _jfs_can_mount.
-_jfs_required="R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY R2_SECRET_KEY JUICEFS_META_URL_TEMPLATE"
-_jfs_missing=0
-for v in $_jfs_required; do
-    eval _val="\${$v:-}"
-    if [ -z "$_val" ]; then
-        _jfs_missing=1
-        break
-    fi
-done
+# The mount in section 2 always needs the base credentials + meta URL; the
+# bucket itself can be identified either by a full S3-generic endpoint
+# (JFS_BUCKET_URL) or by the Cloudflare-R2 account/bucket pair — mirrors the
+# fallback in app/services/storage/bootstrap.py's _missing_settings()/
+# _bucket_url(). Gate Infisical injection on the whole readiness check (not
+# R2_ACCESS_KEY alone) so a partially populated env can't skip injection and
+# then fail the mount gate below.
+_jfs_base_required="R2_ACCESS_KEY R2_SECRET_KEY JUICEFS_META_URL_TEMPLATE"
 
-if [ "$_jfs_missing" = "1" ] && [ -n "${INFISICAL_MACHINE_IDENTITY_CLIENT_ID:-}" ] && [ -n "${INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET:-}" ] && [ -n "${INFISICAL_PROJECT_ID:-}" ]; then
+_jfs_ready() {
+    for v in $_jfs_base_required; do
+        eval _val="\${$v:-}"
+        [ -z "$_val" ] && return 1
+    done
+    if [ -n "${JFS_BUCKET_URL:-}" ]; then
+        return 0
+    fi
+    [ -n "${R2_ACCOUNT_ID:-}" ] && [ -n "${R2_BUCKET:-}" ]
+}
+
+if ! _jfs_ready && [ -n "${INFISICAL_MACHINE_IDENTITY_CLIENT_ID:-}" ] && [ -n "${INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET:-}" ] && [ -n "${INFISICAL_PROJECT_ID:-}" ]; then
     _jfs_env_file="$(mktemp)"
     if python - "$_jfs_env_file" <<'PY'
 import os
@@ -72,6 +79,7 @@ _JFS_KEYS = (
     "R2_SECRET_KEY",
     "JUICEFS_META_URL_TEMPLATE",
     "JFS_ENCRYPTION_KEY",
+    "JFS_BUCKET_URL",
 )
 with open(sys.argv[1], "w", encoding="utf-8") as handle:
     for key in _JFS_KEYS:
@@ -91,20 +99,11 @@ fi
 JFS_MOUNT_PATH="${JUICEFS_HOST_MOUNT_PATH:-/mnt/jfs}"
 JFS_KEY_FILE="/etc/gaia/jfs-master.pem"
 
-# Re-check after the optional Infisical injection above ($_jfs_required is
-# defined there). All five must be present for the host-side mount to succeed.
-_jfs_can_mount=1
-for v in $_jfs_required; do
-    eval _val="\${$v:-}"
-    if [ -z "$_val" ]; then
-        _jfs_can_mount=0
-        break
-    fi
-done
-
-if [ "$_jfs_can_mount" = "1" ] && command -v juicefs >/dev/null 2>&1; then
+# Re-check after the optional Infisical injection above (_jfs_ready is
+# defined there).
+if _jfs_ready && command -v juicefs >/dev/null 2>&1; then
     META_URL=$(printf '%s' "$JUICEFS_META_URL_TEMPLATE" | sed 's/{shard}/0/g')
-    BUCKET_URL="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}"
+    BUCKET_URL="${JFS_BUCKET_URL:-https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}}"
 
     # Materialize the RSA private key (multi-line PEM stored as a single env var)
     if [ -n "${JFS_ENCRYPTION_KEY:-}" ]; then
@@ -178,12 +177,12 @@ if [ "$_jfs_can_mount" = "1" ] && command -v juicefs >/dev/null 2>&1; then
             --buffer-size=600 \
             --background \
             "$META_URL" "$JFS_MOUNT_PATH" 2>&1 || true
-        _jfs_ready=0
+        _jfs_mount_ok=0
         for _ in $(seq 1 45); do
-            if mountpoint -q "$JFS_MOUNT_PATH" 2>/dev/null; then _jfs_ready=1; break; fi
+            if mountpoint -q "$JFS_MOUNT_PATH" 2>/dev/null; then _jfs_mount_ok=1; break; fi
             sleep 1
         done
-        if [ "$_jfs_ready" = "1" ]; then
+        if [ "$_jfs_mount_ok" = "1" ]; then
             echo "[entrypoint] JuiceFS mounted at $JFS_MOUNT_PATH"
         else
             echo "[entrypoint] juicefs mount not ready after 45s; booting without JuiceFS (storage-backed features return 503 until it mounts)"

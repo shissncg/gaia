@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.agents.llm.types import LLMProviderName
 from app.db.repositories.base import MongoDocument
+from app.models.payment_models import PlanType
 
 
 class ModelProvider(str, Enum):
@@ -34,13 +35,6 @@ class DevModelOption(TypedDict):
     model: str
     model_kwargs: dict[str, Any] | None
     reasoning: bool
-
-
-class PlanType(str, Enum):
-    """Subscription plan types."""
-
-    FREE = "free"
-    PRO = "pro"
 
 
 class ModelConfig(MongoDocument):

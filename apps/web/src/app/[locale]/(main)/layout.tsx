@@ -14,6 +14,7 @@ import { useIsMobile } from "@/hooks/ui/useMobile";
 import { useBackgroundSync } from "@/hooks/useBackgroundSync";
 import ProvidersLayout from "@/layouts/ProvidersLayout";
 import SidebarLayout, { CustomSidebarTrigger } from "@/layouts/SidebarLayout";
+import { IS_SELF_HOSTED } from "@/lib/deployment";
 import { useChatStoreSync } from "@/stores/chatStore";
 import { useHoloCardModalStore } from "@/stores/holoCardModalStore";
 import { useRightSidebar } from "@/stores/rightSidebarStore";
@@ -161,8 +162,11 @@ export default function MainLayout({ children }: { children: ReactNode }) {
             </RightSidebar>
           </div>
 
-          {/* Global Pricing Modal */}
-          <GlobalPricingModal />
+          {/* Global Pricing Modal — self-hosted has no billing to upgrade
+              into. Every CTA that calls openModal() is itself hidden by this
+              task, so the now-unreachable openModal() calls are silent
+              no-ops rather than dead code to remove. */}
+          {!IS_SELF_HOSTED && <GlobalPricingModal />}
 
           {/* What's New Modal */}
           <WhatsNewModal />

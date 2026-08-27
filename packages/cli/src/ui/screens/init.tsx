@@ -439,12 +439,14 @@ export const InfisicalSetupStep: React.FC<{
     INFISICAL_PROJECT_ID: string;
     INFISICAL_MACHINE_IDENTITY_CLIENT_ID: string;
     INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET: string;
+    INFISICAL_HOST: string;
   }) => void;
 }> = ({ onSubmit }) => {
   const [values, setValues] = useState({
     INFISICAL_PROJECT_ID: "",
     INFISICAL_MACHINE_IDENTITY_CLIENT_ID: "",
     INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET: "",
+    INFISICAL_HOST: "",
   });
   const [activeIndex, setActiveIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -453,14 +455,23 @@ export const InfisicalSetupStep: React.FC<{
     {
       key: "INFISICAL_PROJECT_ID" as const,
       description: "Found in your Infisical project settings",
+      optional: false,
     },
     {
       key: "INFISICAL_MACHINE_IDENTITY_CLIENT_ID" as const,
       description: "From Access Control → Machine Identities",
+      optional: false,
     },
     {
       key: "INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET" as const,
       description: "Generated when creating the machine identity",
+      optional: false,
+    },
+    {
+      key: "INFISICAL_HOST" as const,
+      description:
+        "URL of your Infisical instance — leave empty for Infisical Cloud (https://app.infisical.com)",
+      optional: true,
     },
   ];
 
@@ -476,11 +487,15 @@ export const InfisicalSetupStep: React.FC<{
         return;
       }
       // On last field, validate and submit
-      const missing = fields.filter((f) => !values[f.key].trim());
+      const missing = fields.filter(
+        (f) => !f.optional && !values[f.key].trim(),
+      );
       if (missing.length > 0) {
         setError(`Required: ${missing.map((f) => f.key).join(", ")}`);
         // Go to first missing field
-        const firstMissingIdx = fields.findIndex((f) => !values[f.key].trim());
+        const firstMissingIdx = fields.findIndex(
+          (f) => !f.optional && !values[f.key].trim(),
+        );
         if (firstMissingIdx >= 0) setActiveIndex(firstMissingIdx);
         return;
       }
@@ -514,11 +529,11 @@ export const InfisicalSetupStep: React.FC<{
       <Box marginBottom={1} flexDirection="column">
         <Text color="gray">Configure your Infisical credentials.</Text>
         <Text color="gray" dimColor>
-          Visit{" "}
+          Get these values from your Infisical instance (
           <Text color="cyan" underline>
             app.infisical.com
           </Text>{" "}
-          to get these values.
+          for Infisical Cloud).
         </Text>
       </Box>
 
@@ -570,6 +585,141 @@ export const InfisicalSetupStep: React.FC<{
           <Text color="red">{error}</Text>
         </Box>
       )}
+
+      <Box marginTop={1}>
+        <Text dimColor>
+          <Text bold>Enter</Text> confirm · <Text bold>↑↓</Text> navigate
+        </Text>
+      </Box>
+    </Box>
+  );
+};
+
+interface PublicUrlField {
+  key: "PUBLIC_WEB_URL" | "PUBLIC_API_URL";
+  label: string;
+  description: string;
+  defaultValue: string;
+}
+
+const PUBLIC_URL_FIELDS: PublicUrlField[] = [
+  {
+    key: "PUBLIC_WEB_URL",
+    label: "Public web URL",
+    description: "URL users will open in a browser",
+    defaultValue: "http://localhost:3000",
+  },
+  {
+    key: "PUBLIC_API_URL",
+    label: "Public API URL",
+    description: "URL the browser reaches the API at",
+    defaultValue: "http://localhost:8000",
+  },
+];
+
+// Selfhost-only step: what URL will this deployment actually be reachable
+// at? Feeds HOST/FRONTEND_URL (apps/api/.env) and the web container's
+// runtime NEXT_PUBLIC_API_BASE_URL (infra/docker/.env) — see env-setup.ts.
+// Both fields are optional; leaving them blank keeps the purely-local
+// localhost defaults.
+export const PublicUrlsStep: React.FC<{
+  onSubmit: (values: {
+    PUBLIC_WEB_URL: string;
+    PUBLIC_API_URL: string;
+  }) => void;
+}> = ({ onSubmit }) => {
+  const [values, setValues] = useState({
+    PUBLIC_WEB_URL: "",
+    PUBLIC_API_URL: "",
+  });
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Normalize on receipt: strip trailing slashes; empty falls back to the
+  // localhost default. The writers (env-writer.ts) add exactly the slashes
+  // they need on top of this.
+  const resolve = (field: PublicUrlField): string =>
+    values[field.key].trim().replace(/\/+$/, "") || field.defaultValue;
+
+  useInput((_input, key) => {
+    if (key.tab || key.downArrow) {
+      setActiveIndex((prev) =>
+        prev < PUBLIC_URL_FIELDS.length - 1 ? prev + 1 : prev,
+      );
+    } else if (key.upArrow) {
+      setActiveIndex((prev) => (prev > 0 ? prev - 1 : prev));
+    } else if (key.return) {
+      if (activeIndex < PUBLIC_URL_FIELDS.length - 1) {
+        setActiveIndex((prev) => prev + 1);
+        return;
+      }
+      const [webField, apiField] = PUBLIC_URL_FIELDS;
+      onSubmit({
+        PUBLIC_WEB_URL: resolve(webField!),
+        PUBLIC_API_URL: resolve(apiField!),
+      });
+    }
+  });
+
+  return (
+    <Box
+      flexDirection="column"
+      marginTop={1}
+      paddingX={1}
+      borderStyle="round"
+      borderColor={THEME_COLOR}
+    >
+      <Box marginBottom={1}>
+        <Text bold color={THEME_COLOR}>
+          Public URLs
+        </Text>
+      </Box>
+
+      <Box marginBottom={1}>
+        <Text color="gray">
+          Where will this deployment be reachable? Leave blank for a purely
+          local setup.
+        </Text>
+      </Box>
+
+      {PUBLIC_URL_FIELDS.map((field, idx) => (
+        <Box key={field.key} flexDirection="column" marginBottom={1}>
+          <Box>
+            <Text color={idx === activeIndex ? THEME_COLOR : "white"}>
+              {idx === activeIndex ? "▸ " : "  "}
+              {field.label}:
+            </Text>
+          </Box>
+          <Box marginLeft={2}>
+            <Text color="gray" dimColor>
+              {field.description} (default {field.defaultValue})
+            </Text>
+          </Box>
+          {idx === activeIndex ? (
+            <Box marginLeft={2}>
+              <TextInput
+                value={values[field.key]}
+                onChange={(v) =>
+                  setValues((prev) => ({ ...prev, [field.key]: v }))
+                }
+                placeholder={field.defaultValue}
+              />
+            </Box>
+          ) : (
+            <Box marginLeft={2}>
+              <Text color="gray">will write: {resolve(field)}</Text>
+            </Box>
+          )}
+        </Box>
+      ))}
+
+      <Box marginTop={1} flexDirection="column">
+        <Text color="gray" dimColor>
+          FRONTEND_URL={resolve(PUBLIC_URL_FIELDS[0]!)}
+        </Text>
+        <Text color="gray" dimColor>
+          HOST={resolve(PUBLIC_URL_FIELDS[1]!)}
+        </Text>
+      </Box>
 
       <Box marginTop={1}>
         <Text dimColor>
@@ -1277,6 +1427,10 @@ export const InitScreen: React.FC<{ store: CLIStore }> = ({ store }) => {
 
       {state.inputRequest?.id === "env_infisical" && (
         <InfisicalSetupStep onSubmit={(values) => store.submitInput(values)} />
+      )}
+
+      {state.inputRequest?.id === "env_public_urls" && (
+        <PublicUrlsStep onSubmit={(values) => store.submitInput(values)} />
       )}
 
       {state.step === "Environment Setup" &&

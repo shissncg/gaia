@@ -37,7 +37,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.db.mongodb.collections import workflows_collection
+from app.db.mongodb.collections import get_async_collection
+
+workflows_collection = get_async_collection("workflows")
 
 _LEGACY_FIELD = "selected_integrations"
 

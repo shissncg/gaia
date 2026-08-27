@@ -310,6 +310,44 @@ def _strip_openui_section(prompt: str) -> str:
     return prompt[:start].rstrip() + "\n\n" + prompt[end:].lstrip()
 
 
+# Markers that bracket the "Rate Limits & Subscription" section inside
+# ``COMMS_AGENT_PROMPT``. Used to strip the section on self-hosted
+# deployments, which register no billing tools (see
+# registry._initialize_categories) — the comms agent must not be told to
+# delegate pricing/upgrade questions to tools that don't exist.
+_BILLING_SECTION_START_MARKER = "—Rate Limits & Subscription—"
+_BILLING_SECTION_END_MARKER = "—Memory & Getting To Know The User—"
+
+
+def _strip_billing_section(prompt: str) -> str:
+    """Remove the embedded Rate Limits & Subscription section from ``prompt``.
+
+    The block is delimited by ``_BILLING_SECTION_START_MARKER`` and the next
+    section's header, ``_BILLING_SECTION_END_MARKER`` (kept intact). If either
+    marker is missing we log a loud warning and return ``prompt`` unchanged —
+    same rationale as ``_strip_openui_section``: silently leaving the routing
+    instruction in place would be far worse than a noisy startup warning.
+    """
+    start = prompt.find(_BILLING_SECTION_START_MARKER)
+    if start == -1:
+        log.warning(
+            f"{LogTag.AGENT} comms_prompts: billing section start marker not found in "
+            "COMMS_AGENT_PROMPT — self-hosted variant will still route pricing "
+            "questions to the (nonexistent) billing tools. Update "
+            "_BILLING_SECTION_START_MARKER to match the prompt."
+        )
+        return prompt
+    end = prompt.find(_BILLING_SECTION_END_MARKER, start)
+    if end == -1:
+        log.warning(
+            f"{LogTag.AGENT} comms_prompts: billing section end marker not found after "
+            "the start marker — self-hosted strip aborted. Update "
+            "_BILLING_SECTION_END_MARKER to match the prompt."
+        )
+        return prompt
+    return prompt[:start].rstrip() + "\n\n" + prompt[end:]
+
+
 EXECUTOR_AGENT_PROMPT = """
 You are GAIA's Executor.
 

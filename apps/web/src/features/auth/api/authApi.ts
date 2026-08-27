@@ -19,22 +19,11 @@ export interface UserInfo {
   selected_model?: string;
 }
 
-export interface GoogleLoginResponse {
-  url: string;
-}
-
 export const authApi = {
   // Fetch current user info
   fetchUserInfo: async (): Promise<UserInfo> => {
     return apiService.get<UserInfo>("/user/me", {
       silent: true,
-    });
-  },
-
-  // Initiate Google login
-  googleLogin: async (): Promise<GoogleLoginResponse> => {
-    return apiService.get<GoogleLoginResponse>("/oauth/login/google", {
-      errorMessage: "Failed to initiate Google login",
     });
   },
 

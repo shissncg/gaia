@@ -139,8 +139,9 @@ class TieredRateLimiter:
         origin = origin or current_limit_origin()
         # Checked here rather than inside `_check_and_increment` so the bypass
         # also skips the upsell side effects: a dev run must not fire analytics
-        # or send a user an upgrade email.
-        if settings.DEV_UNLIMITED_RATE_LIMITS:
+        # or send a user an upgrade email. Self-hosted deployments have no
+        # billing to enforce, so the same bypass applies there.
+        if settings.DEV_UNLIMITED_RATE_LIMITS or settings.DEPLOYMENT_MODE == "self_hosted":
             return {}
         try:
             return await self._check_and_increment(user_id, feature_key, user_plan)

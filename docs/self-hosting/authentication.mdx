@@ -1,0 +1,77 @@
+---
+title: "Authentication"
+description: "Set up Google sign-in on your self-hosted GAIA instance with WorkOS"
+icon: "lock"
+---
+
+## Why WorkOS
+
+GAIA's login flow rides entirely on [WorkOS](https://workos.com) AuthKit. There is no local email/password login — a free WorkOS account is a hard prerequisite for a working self-hosted instance. WorkOS brokers the actual sign-in (Google, in GAIA's case) and hands back a sealed session that GAIA stores in a cookie.
+
+## Set up WorkOS
+
+<Steps>
+  <Step title="Create an AuthKit application">
+    Sign up at [workos.com](https://workos.com) and create a new application. WorkOS enables AuthKit for you automatically.
+  </Step>
+
+  <Step title="Enable Google as an authentication method">
+    In the WorkOS dashboard, go to **Authentication** and enable **Google OAuth**. WorkOS ships default Google credentials for its Staging environment only — a production WorkOS environment requires your own Google OAuth client ID and secret. See [WorkOS's Google OAuth guide](https://workos.com/docs/integrations/google-oauth) for creating and registering those credentials.
+  </Step>
+
+  <Step title="Copy your API key and Client ID">
+    From the WorkOS dashboard, copy the **API Key** and **Client ID** for your environment. You'll need both for the environment variables below.
+  </Step>
+</Steps>
+
+## Environment variables
+
+Set these in your API environment (`apps/api/.env`, or the equivalent secret store for your deployment):
+
+| Variable | Description |
+|---|---|
+| `WORKOS_API_KEY` | API key from the WorkOS dashboard |
+| `WORKOS_CLIENT_ID` | Client ID from the WorkOS dashboard |
+| `WORKOS_COOKIE_PASSWORD` | Password used to seal the session cookie — must be 32+ characters |
+
+Generate a `WORKOS_COOKIE_PASSWORD`:
+
+```bash
+openssl rand -base64 33
+```
+
+## Redirect URIs to register
+
+GAIA computes its OAuth callback URLs from your `HOST` setting. Register the ones for the clients you use as Redirect URIs in the WorkOS dashboard:
+
+| Client | Redirect URI |
+|---|---|
+| Web | `{HOST}/api/v1/oauth/workos/callback` |
+| Desktop app | `{HOST}/api/v1/oauth/workos/desktop/callback` |
+| Mobile app | `{HOST}/api/v1/oauth/workos/mobile/callback` |
+
+For example, with `HOST=https://api.gaia.example.com`, register `https://api.gaia.example.com/api/v1/oauth/workos/callback` for the web client.
+
+<Warning>
+A redirect URI mismatch surfaces as WorkOS's own redirect-URI error at login time, not a GAIA error. If sign-in fails immediately after clicking through Google, check that the registered URI exactly matches your `HOST`.
+</Warning>
+
+## The cookie constraint
+
+The web app and the API must share a registrable domain, or the session cookie WorkOS sets never attaches to requests from the browser. See [Production deployment](/self-hosting/production) for the full domain and cookie configuration.
+
+## First login
+
+The first successful Google sign-in creates the GAIA user automatically — there is no separate account-creation step and no admin user concept. Whoever completes the WorkOS flow first becomes a user of your instance.
+
+## What Google login does not grant
+
+Signing in with Google only authenticates you into GAIA. It does not connect Gmail, Google Calendar, or any other workspace integration — those go through a separate OAuth flow via Composio, configured per integration. Until the integrations documentation for self-hosting exists, treat every workspace integration (Gmail, Calendar, Slack, etc.) as requiring its own additional setup after your first login.
+
+## Emergency access (break-glass)
+
+<Warning>
+This is a single-user emergency path for local development, not a production login method. Never set it on an internet-exposed deployment.
+</Warning>
+
+When `ENV=development` and `DEV_AUTH_BYPASS_EMAIL` is set, GAIA mounts a dev-only router that authenticates every request as a fixed user and lets you mint that user via `POST /api/v1/dev/users`, skipping WorkOS entirely. Production refuses to boot if `DEV_AUTH_BYPASS_EMAIL` is set — this path exists only to unblock local development and automated testing, not as an alternative to WorkOS sign-in.

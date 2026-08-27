@@ -18,6 +18,7 @@ import { useDodoPayments } from "@/features/pricing/hooks/useDodoPayments";
 import { usePricing } from "@/features/pricing/hooks/usePricing";
 import UseCreateConfetti from "@/hooks/ui/useCreateConfetti";
 import { ANALYTICS_EVENTS, trackEvent } from "@/lib/analytics";
+import { IS_SELF_HOSTED } from "@/lib/deployment";
 
 type PaymentStatus = "verifying" | "success" | "error";
 
@@ -39,6 +40,13 @@ export default function PaymentSuccessPage() {
   const hasVerified = useRef(false);
 
   useEffect(() => {
+    // Self-hosted deployments have no billing: there is no payment to
+    // verify, and /api/v1/payments/* doesn't exist on this deployment.
+    if (IS_SELF_HOSTED) {
+      router.replace("/");
+      return;
+    }
+
     if (hasVerified.current) return;
     hasVerified.current = true;
 
@@ -63,7 +71,7 @@ export default function PaymentSuccessPage() {
       }
     };
     run();
-  }, [verifyPayment]);
+  }, [verifyPayment, router]);
 
   // Celebrate an active subscription.
   useEffect(() => {

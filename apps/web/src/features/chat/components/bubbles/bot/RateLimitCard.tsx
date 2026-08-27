@@ -9,6 +9,7 @@ import {
 } from "@icons";
 import type { RateLimitData } from "@shared/chat";
 import { formatFeatureName, formatPlanName } from "@shared/utils";
+import { IS_SELF_HOSTED } from "@/lib/deployment";
 import { usePricingModalStore } from "@/stores/pricingModalStore";
 
 interface RateLimitCardProps {
@@ -57,8 +58,10 @@ export default function RateLimitCard({ data }: RateLimitCardProps) {
   const planName = formatPlanName(plan_required);
   // The footer is either an "Upgrade to X" CTA or a neutral "View Plans" link.
   // A pro user hitting a daily cap has nothing to upgrade to, so the neutral
-  // link is noise — drop the whole footer for them.
-  const showFooter = isUpgradeRequired || !isPro;
+  // link is noise — drop the whole footer for them. Self-hosted has no
+  // billing to upgrade into at all: this renders straight off the 429
+  // payload, independent of plan state, so it needs its own gate.
+  const showFooter = !IS_SELF_HOSTED && (isUpgradeRequired || !isPro);
 
   return (
     <div className="flex w-full max-w-md flex-col gap-0 rounded-3xl bg-zinc-800 backdrop-blur-lg overflow-hidden">

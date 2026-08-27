@@ -203,6 +203,23 @@ class TestBlockedToolStreamsItsCard:
             " `create_upgrade_link` for a checkout link if they want it."
         )
 
+    async def test_self_hosted_never_sells_an_upgrade_nobody_can_buy(self) -> None:
+        """After the 4.2 walls, a free-plan block is rare in self-host — but the
+        copy must not sell an upgrade if one somehow still fires."""
+        with (
+            patch.object(rl.settings, "DEPLOYMENT_MODE", "self_hosted"),
+            pytest.raises(rl.LangChainRateLimitException) as raised,
+        ):
+            await _call_blocked_tool(
+                RateLimitExceededException(
+                    feature="generate_image", reset_time=RESET_AT, current_plan="free"
+                )
+            )
+
+        assert str(raised.value) == (
+            f"Rate limit exceeded for generate_image. Resets at {RESET_AT.isoformat()}."
+        )
+
     async def test_a_pro_user_is_not_pitched_an_upgrade(self) -> None:
         with pytest.raises(rl.LangChainRateLimitException) as raised:
             await _call_blocked_tool(
@@ -407,6 +424,19 @@ class TestDailyCostBudget:
 
         assert "plan_required" not in raised.value.detail
         assert raised.value.detail["current_plan"] == PlanType.PRO.value
+
+    async def test_self_hosted_skips_the_budget_read_entirely(self) -> None:
+        """The operator pays their own LLM bill: no plan lookup, no Redis spend
+        read — the early return happens before either."""
+
+        def _explode(*a: object, **k: object) -> None:
+            raise AssertionError("get_cost must not be called in self_hosted mode")
+
+        with (
+            patch.object(rl.settings, "DEPLOYMENT_MODE", "self_hosted"),
+            patch("app.decorators.rate_limiting.get_cost", side_effect=_explode),
+        ):
+            await rl.enforce_daily_cost_budget("user-1", "chat_messages")
 
 
 class TestToolPlanLabelling:

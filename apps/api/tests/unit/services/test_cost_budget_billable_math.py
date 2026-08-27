@@ -8,7 +8,19 @@ changed files' collections against the merge base).
 
 import pytest
 
-from app.services.cost_budget import _billable_request_tokens, _is_charged_spend
+from app.config.rate_limits import RateLimitPeriod, get_time_window_key
+from app.services.cost_budget import _billable_request_tokens, _budget_key, _is_charged_spend
+
+
+@pytest.mark.unit
+class TestBudgetKey:
+    def test_formats_user_id_period_and_current_window(self) -> None:
+        key = _budget_key("u-key", RateLimitPeriod.DAY)
+
+        # Real get_time_window_key(DAY) call, so a mutant that swaps it for
+        # get_time_window_key(None) is caught too: None falls through to the
+        # MONTH branch and produces a different (shorter) format string.
+        assert key == f"cost_budget:u-key:day:{get_time_window_key(RateLimitPeriod.DAY)}"
 
 
 @pytest.mark.unit

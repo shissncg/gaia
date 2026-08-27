@@ -395,9 +395,13 @@ class TestProductionProviderRegistration:
     """Drives the REAL register_llm_providers().
 
     `_build_registry` above always registers all four slots and varies only the
-    keys, so production's actual state — custom_llm never registered, because it
-    is gated on ENV=development — was unrepresentable, and the KeyError it raised
-    went unseen by every tier.
+    keys. Before self-host support, production's actual state was different —
+    custom_llm was gated on ENV=development and never registered at all, so a
+    lookup raised KeyError and took every agent graph down; that state was
+    unrepresentable here. custom_llm is now registered in every environment,
+    so the invariant this guards is the new one: an unconfigured custom
+    endpoint degrades to unavailable (the WARN strategy's `get() -> None`),
+    never to a KeyError.
     """
 
     @pytest.mark.regression
@@ -411,18 +415,20 @@ class TestProductionProviderRegistration:
         monkeypatch.setattr("app.core.lazy_loader.providers", registry)
         monkeypatch.setattr("app.agents.llm.client.providers", registry)
         monkeypatch.setattr(settings, "ENV", "production")
+        monkeypatch.setattr(settings, "LLM_BASE_URL", None)
+        monkeypatch.setattr(settings, "LLM_API_KEY", None)
+        monkeypatch.setattr(settings, "LLM_MODEL_NAME", None)
 
         register_llm_providers()
 
-        # Literals rather than LLMProviderKey/LLMProviderName: the regression
-        # gate re-runs this file against the base revision, where those enums
-        # do not exist yet, and an import error there proves nothing.
-        with pytest.raises(KeyError):
-            registry.get("custom_llm")
+        # Registered (unlike the pre-self-host "never registered in
+        # production" behavior) but unconfigured: is_available() is False and
+        # get() returns None rather than raising.
+        assert registry.is_available("custom_llm") is False
+        assert registry.get("custom_llm") is None
 
-        # That KeyError went straight out through init_llm and took every agent
-        # graph down. Which providers stay available depends on the ambient keys
-        # (CI has none), so only the never-registered slot is asserted.
+        # Which providers stay available depends on the ambient keys (CI has
+        # none), so only the never-configured slot is asserted.
         assert "custom" not in _get_available_providers()
 
 

@@ -1,11 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 
+import { getServerApiBaseUrl } from "@/lib/serverApiBaseUrl";
+
 // The blog write credential lives ONLY on the server. It must never carry a
 // NEXT_PUBLIC_ prefix — that would inline it into the client bundle.
 const BLOG_BEARER_TOKEN = process.env.BLOG_BEARER_TOKEN;
-// Read the API base server-side. The value is the same origin the client used;
-// reading it here (not shipping the token) is what makes this safe.
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 /**
  * Server-side proxy for creating blog posts.
@@ -22,7 +21,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (!API_BASE_URL) {
+  // Fetch the API from inside the web container over the private network —
+  // the browser-facing NEXT_PUBLIC_API_BASE_URL is unreachable (or has an
+  // untrusted TLS cert) from here on a split-domain/container deploy.
+  const apiBaseUrl = getServerApiBaseUrl();
+  if (!apiBaseUrl) {
     return NextResponse.json(
       { error: "API base URL is not configured." },
       { status: 500 },
@@ -57,7 +60,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // Build the target via the URL parser (keeps scheme/host/port/query intact),
   // appending `/blogs` regardless of whether the base has a trailing slash.
-  const backendUrl = new URL(API_BASE_URL);
+  const backendUrl = new URL(apiBaseUrl);
   backendUrl.pathname = `${backendUrl.pathname.replace(/\/+$/, "")}/blogs`;
 
   const backendResponse = await fetch(backendUrl, {

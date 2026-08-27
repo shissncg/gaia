@@ -278,21 +278,30 @@ async def invalidate_plan_cache() -> None:
 
 
 async def setup_payment_plans(
-    monthly_product_id: str, yearly_product_id: str, dry_run: bool = False
+    monthly_product_id: str,
+    yearly_product_id: str,
+    dry_run: bool = False,
+    selfhost: bool = False,
 ) -> bool:
     """Set up GAIA subscription plans in the database using Dodo product IDs."""
     print("🚀 GAIA Payment Setup" + (" (DRY RUN — no writes)" if dry_run else ""))
     print("=" * 50)
 
-    # Try to fetch DODO_PAYMENTS_API_KEY from Infisical-injected env, fallback to settings
-    dodo_payments_api_key = os.environ.get("DODO_PAYMENTS_API_KEY") or getattr(
-        settings, "DODO_PAYMENTS_API_KEY", None
-    )
-    if not dodo_payments_api_key:
-        print("❌ DODO_PAYMENTS_API_KEY not found in Infisical or environment variables/settings")
-        return False
+    if selfhost:
+        print("🏠 Self-host mode: seeding plans without a Dodo account")
+    else:
+        # Try to fetch DODO_PAYMENTS_API_KEY from Infisical-injected env, fallback to settings
+        dodo_payments_api_key = os.environ.get("DODO_PAYMENTS_API_KEY") or getattr(
+            settings, "DODO_PAYMENTS_API_KEY", None
+        )
+        if not dodo_payments_api_key:
+            print(
+                "❌ DODO_PAYMENTS_API_KEY not found in Infisical or environment variables/settings"
+            )
+            return False
 
-    print("🔗 Dodo Payments API key resolved")
+        print("🔗 Dodo Payments API key resolved")
+
     print(f"📦 Monthly Product ID: {monthly_product_id}")
     print(f"📦 Yearly Product ID: {yearly_product_id}")
     print()
@@ -339,13 +348,21 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="Setup Payment plans for GAIA")
     parser.add_argument(
         "--monthly-product-id",
-        required=True,
+        required=False,
+        default="",
         help="Dodo product ID for monthly Pro plan",
     )
     parser.add_argument(
         "--yearly-product-id",
-        required=True,
+        required=False,
+        default="",
         help="Dodo product ID for yearly Pro plan",
+    )
+    parser.add_argument(
+        "--selfhost",
+        action="store_true",
+        help="Seed plans for a self-hosted deployment: no Dodo account required; "
+        "Pro product IDs default to empty strings.",
     )
     parser.add_argument(
         "--dry-run",
@@ -355,8 +372,16 @@ async def main() -> None:
 
     args = parser.parse_args()
 
+    if not args.selfhost and not (args.monthly_product_id and args.yearly_product_id):
+        parser.error(
+            "--monthly-product-id and --yearly-product-id are required unless --selfhost is set"
+        )
+
     succeeded = await setup_payment_plans(
-        args.monthly_product_id, args.yearly_product_id, dry_run=args.dry_run
+        args.monthly_product_id,
+        args.yearly_product_id,
+        dry_run=args.dry_run,
+        selfhost=args.selfhost,
     )
     if not succeeded:
         sys.exit(1)

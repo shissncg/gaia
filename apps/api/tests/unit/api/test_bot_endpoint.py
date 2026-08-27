@@ -1262,3 +1262,20 @@ class TestBotRateLimitNotice:
     async def test_other_tool_cards_are_left_alone(self) -> None:
         chunk = {"tool_data": {"tool_name": "memory_data", "data": {}}}
         assert await _bot_rate_limit_notice(chunk, "user_1") is None
+
+    async def test_self_hosted_never_pitches_an_upgrade(self) -> None:
+        """No billing on a self-hosted box: this notice is built straight from
+        the rate-limit card, independent of ``schedule_limit_upsell`` — it
+        needs its own gate rather than relying on that seam alone."""
+        from app.api.v1.endpoints import bot as bot_module
+
+        checkout = AsyncMock()
+        with (
+            patch.object(bot_module.settings, "DEPLOYMENT_MODE", "self_hosted"),
+            patch("app.api.v1.endpoints.bot.payment_service.create_pro_checkout", checkout),
+        ):
+            notice = await _bot_rate_limit_notice(self._card(), "user_1")
+
+        assert notice is not None
+        assert "Upgrade" not in notice
+        checkout.assert_not_awaited()

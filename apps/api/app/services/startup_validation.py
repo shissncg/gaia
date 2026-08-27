@@ -9,8 +9,8 @@ from shared.py.wide_events import log
 
 SEED_MODELS_COMMAND = "uv run --group backend python scripts/seed_models.py --force"
 SEED_PLANS_COMMAND = (
-    "uv run --group backend python scripts/payment_setup.py "
-    "--monthly-product-id <dodo_id> --yearly-product-id <dodo_id>"
+    "uv run --group backend python scripts/payment_setup.py --selfhost  "
+    "(cloud: add --monthly-product-id <dodo_id> --yearly-product-id <dodo_id> instead of --selfhost)"
 )
 
 

@@ -14,6 +14,7 @@ import {
   WhatsappIcon,
 } from "@icons";
 import { PostageStampIcon } from "@/components/shared/icons";
+import { IS_SELF_HOSTED } from "@/lib/deployment";
 
 export interface SettingsMenuItem {
   key: string;
@@ -27,7 +28,7 @@ export interface SettingsMenuItem {
   beta?: boolean;
 }
 
-export const settingsPageItems: SettingsMenuItem[] = [
+const allSettingsPageItems: SettingsMenuItem[] = [
   {
     key: "profile",
     label: "Profile Card",
@@ -109,6 +110,11 @@ export const settingsPageItems: SettingsMenuItem[] = [
     href: "/settings/desktop",
   },
 ];
+
+// Self-hosted deployments have no subscription to manage.
+export const settingsPageItems = allSettingsPageItems.filter(
+  (item) => !(IS_SELF_HOSTED && item.key === "subscription"),
+);
 
 /** Settings sections that only make sense inside the desktop app. */
 export const DESKTOP_ONLY_SETTINGS_KEYS = new Set(["desktop"]);

@@ -70,8 +70,8 @@ def load_config(path: Path = CONFIG_PATH) -> EvalConfig:
 
     providers: dict[str, ProviderConfig] = {}
     for name, p in raw["providers"].items():
-        # No DEV_LLM_BASE_URL fallback: a lane that declares no base URL is a
-        # native one (openrouter, gemini), and handing it the custom development
+        # No LLM_BASE_URL fallback: a lane that declares no base URL is a
+        # native one (openrouter, gemini), and handing it the custom
         # endpoint pointed its health probe — and any rotation retry — at the
         # very backend it exists to be an alternative to.
         base = _env_or_empty(p.get("base_url_env", ""))
@@ -190,9 +190,9 @@ def pin_settings(provider: ProviderConfig) -> None:
     from app.config.settings import settings
     from app.core.lazy_loader import providers
 
-    settings.DEV_LLM_BASE_URL = provider.base_url
-    settings.DEV_LLM_API_KEY = provider.api_key
-    settings.DEV_LLM_MODEL = provider.model
+    settings.LLM_BASE_URL = provider.base_url
+    settings.LLM_API_KEY = provider.api_key
+    settings.LLM_MODEL_NAME = provider.model
     if settings.GAIA_SIM_MODE:
         return
     if providers.is_initialized("custom_llm"):

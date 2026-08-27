@@ -15,6 +15,7 @@ from app.api.v1.middleware.tiered_rate_limiter import (
     CostBudgetExceededException,
     RateLimitExceededException,
 )
+from app.config.settings import settings
 from app.constants.log_tags import LogTag
 from app.core.websocket_manager import get_websocket_manager
 from app.db.repositories.todos import todo_repository
@@ -338,8 +339,15 @@ async def _rate_limit_failure_content(
     detail: dict[str, str] = raw_detail if isinstance(raw_detail, dict) else {}
     reset_time_str = detail.get("reset_time", "")
     # A user already on the top tier has nothing to upgrade to — drop the
-    # pitch and the upgrade action for them.
-    is_pro = detail.get("current_plan") == PlanType.PRO.value
+    # pitch and the upgrade action for them. Self-hosted has no billing to
+    # upgrade into either: this copy is built straight from the exception
+    # detail, independent of `schedule_limit_upsell`, so it needs its own
+    # mode gate (folded into `is_pro` since that already suppresses both the
+    # inline text and the notification action below).
+    is_pro = (
+        settings.DEPLOYMENT_MODE == "self_hosted"
+        or detail.get("current_plan") == PlanType.PRO.value
+    )
     # Only two tiers exist, so the upgrade target is always Pro even when
     # plan_required is absent (a count wall on a feature free can still use).
     upgrade_plan = (detail.get("plan_required") or PlanType.PRO.value).capitalize()

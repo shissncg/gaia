@@ -5,10 +5,9 @@ import axios from "axios";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const PING_URL =
-  process.env.NODE_ENV === "development"
-    ? `${process.env.NEXT_PUBLIC_API_BASE_URL}ping`
-    : "https://api.heygaia.io/api/v1/ping";
+import { IS_SELF_HOSTED } from "@/lib/deployment";
+
+const PING_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL}ping`;
 const STATUS_URL = "https://status.heygaia.io";
 const POLL_INTERVAL = 60_000;
 
@@ -33,6 +32,10 @@ export default function StatusBanner() {
   }, []);
 
   useEffect(() => {
+    // The banner links the vendor's status page — meaningless for a fork,
+    // and polling the vendor's ping endpoint from a self-hosted deploy makes
+    // no sense either.
+    if (IS_SELF_HOSTED) return;
     checkStatus();
     intervalRef.current = setInterval(checkStatus, POLL_INTERVAL);
     return () => {
@@ -40,7 +43,7 @@ export default function StatusBanner() {
     };
   }, [checkStatus]);
 
-  if (!isDown || dismissed) return null;
+  if (IS_SELF_HOSTED || !isDown || dismissed) return null;
 
   return (
     <div className="flex w-full items-center justify-between gap-3 bg-amber-500/10 px-4 py-2 text-sm text-amber-400">

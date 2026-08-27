@@ -123,6 +123,10 @@ RUN adduser --disabled-password --gecos '' appuser \
 # Copy API application code (root-owned, readable by appuser)
 COPY apps/api/app ./apps/api/app
 COPY apps/api/scripts ./apps/api/scripts
+# scripts/populate_gaia_knowledge.py's default content path resolves to
+# /app/docs/GAIA.md inside the container — needed for the seed-knowledge
+# one-shot to find its source content.
+COPY docs/GAIA.md ./docs/GAIA.md
 
 # Entrypoint: reads Docker Swarm secrets into env vars before exec-ing the process
 COPY scripts/docker-entrypoint.sh /entrypoint.sh

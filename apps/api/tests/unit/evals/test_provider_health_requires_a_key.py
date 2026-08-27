@@ -7,7 +7,7 @@ at transport time on every single case — an outage the health check exists to
 catch before the first model call.
 
 The second half is the config loader: a lane that declares no ``base_url_env``
-used to inherit ``DEV_LLM_BASE_URL``, so the native lanes' health probe (and any
+used to inherit ``LLM_BASE_URL``, so the native lanes' health probe (and any
 rotation retry) pointed at the very backend they exist to be an alternative to.
 """
 
@@ -21,9 +21,9 @@ from scripts.evals.core.providers import ProviderConfig, health_check, load_conf
 CONFIG = """
 [providers.opencode]
 lane = "custom"
-base_url_env = "DEV_LLM_BASE_URL"
-api_key_env = "DEV_LLM_API_KEY"
-model_env = "DEV_LLM_MODEL"
+base_url_env = "LLM_BASE_URL"
+api_key_env = "LLM_API_KEY"
+model_env = "LLM_MODEL_NAME"
 budget_usd = 0.0
 
 [providers.openrouter]
@@ -39,8 +39,8 @@ order = ["opencode", "openrouter"]
 default_max_usd = 8.0
 
 [judge]
-base_url_env = "DEV_LLM_BASE_URL"
-api_key_env = "DEV_LLM_API_KEY"
+base_url_env = "LLM_BASE_URL"
+api_key_env = "LLM_API_KEY"
 model_env = "JUDGE_MODEL"
 """
 
@@ -76,14 +76,14 @@ def test_a_native_lane_with_a_key_is_healthy_without_a_probe(lane: str) -> None:
     assert "key presence only" in check.reason
 
 
-def test_a_native_lane_does_not_inherit_the_custom_development_endpoint(
+def test_a_native_lane_does_not_inherit_the_custom_endpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(CONFIG)
     monkeypatch.setattr("scripts.evals.core.providers._load_app_env", lambda: None, raising=True)
-    monkeypatch.setenv("DEV_LLM_BASE_URL", "http://localhost:9/api/v1")
-    monkeypatch.setenv("DEV_LLM_API_KEY", "custom-key")
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:9/api/v1")
+    monkeypatch.setenv("LLM_API_KEY", "custom-key")
     monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-key")
 
     cfg = load_config(config_path)
