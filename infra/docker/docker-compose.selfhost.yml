@@ -282,6 +282,10 @@ services:
       # docker-entrypoint.sh (no rebuild needed to change it). Must be the
       # URL a browser can reach — your domain/tunnel in real deployments.
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1/}
+      # Next standalone binds the HOSTNAME env (defaults to the container id),
+      # leaving loopback unbound — the localhost healthcheck then fails while
+      # the app serves fine on the mapped port. Bind everything.
+      HOSTNAME: 0.0.0.0
       # Server-side (SSR/ISR) fetches reach the API over the private network.
       # The public NEXT_PUBLIC_API_BASE_URL is browser-only and is unreachable
       # (or has an untrusted TLS cert) from inside this container, which would
@@ -426,7 +430,7 @@ services:
       REDIS_URL: redis://redis:6379/0
     # Same reason as arq_worker: drop the `uv run` wrapper so we don't hit
     # the Permission denied on /app/uv.lock as appuser.
-    command: ["python", "scripts/seed_models.py", "--force"]
+    command: ["python", "scripts/seed_models.py", "--force", "--no-backup"]
     depends_on:
       run-migrations:
         condition: service_completed_successfully
