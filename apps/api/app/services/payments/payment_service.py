@@ -50,8 +50,12 @@ class DodoPaymentService:
 
         if settings.DEPLOYMENT_MODE == "self_hosted" or not settings.DODO_PAYMENTS_API_KEY:
             log.info(
-                f"{LogTag.PAYMENT} Dodo client not constructed — "
-                f"{'self-hosted deployment' if settings.DEPLOYMENT_MODE == 'self_hosted' else 'no API key configured'}"
+                f"{LogTag.PAYMENT} Dodo client not constructed",
+                reason=(
+                    "self_hosted_deployment"
+                    if settings.DEPLOYMENT_MODE == "self_hosted"
+                    else "no_api_key_configured"
+                ),
             )
             return
 

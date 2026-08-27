@@ -851,8 +851,9 @@ def _strip_billing_references(core: str) -> str:
     if missing:
         log.warning(
             f"{LogTag.AGENT} operational_docs: billing references not found in GAIA_CORE "
-            f"({', '.join(missing)}) — the self-hosted core may still route billing "
-            "questions. Update _strip_billing_references to match GAIA_CORE."
+            "— the self-hosted core may still route billing questions. "
+            "Update _strip_billing_references to match GAIA_CORE.",
+            missing_fragments=missing,
         )
         return core
 
