@@ -12,12 +12,14 @@ per-user COGS stays measurable. See ``app.services.llm_metering``.
 """
 
 from collections.abc import AsyncIterator, Iterator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import fakeredis.aioredis
 import pytest
+from redis.exceptions import RedisError
 
 from app.config.rate_limits import RateLimitPeriod
+from app.constants.log_tags import LogTag
 from app.db.redis import redis_cache
 from app.services import cost_budget
 from app.services.cost_budget import (
@@ -195,6 +197,7 @@ class TestDegradation:
         rollup.assert_not_awaited()
 
     async def test_redis_being_down_does_not_fail_the_model_call(self, rollup: AsyncMock) -> None:
+        log.reset()
         with patch.object(redis_cache, "redis", None):
             await record_model_call_usage(
                 USER, 0.01, REQUEST, input_tokens=300, output_tokens=200, charge_to_budget=True
@@ -211,6 +214,53 @@ class TestDegradation:
             cached_tokens=0,
             reasoning_tokens=0,
         )
+        # The gap is findable, not silent.
+        warnings = log.get().get("warnings", [])
+        assert [w["msg"] for w in warnings] == [
+            f"{LogTag.STORAGE} Redis unavailable — model call usage not recorded."
+        ]
+
+
+@pytest.mark.unit
+class TestRedisPipelineMechanics:
+    """How the write pipeline is built and how its own failure is reported —
+    distinct from the durable-rollup failure covered in ``TestTokenOnlyCalls``."""
+
+    async def test_writes_via_a_non_transactional_pipeline(
+        self, fake_redis: fakeredis.aioredis.FakeRedis
+    ) -> None:
+        """redis-py's MULTI/EXEC wrapping is unwanted here — an interrupted
+        increment just runs again next call, so paying for atomicity buys
+        nothing but latency."""
+        with patch.object(fake_redis, "pipeline", wraps=fake_redis.pipeline) as mock_pipeline:
+            await record_model_call_usage(
+                USER, 0.01, REQUEST, input_tokens=10, output_tokens=5, charge_to_budget=True
+            )
+
+        mock_pipeline.assert_called_once_with(transaction=False)
+
+    async def test_a_failed_pipeline_write_is_named_in_the_warning(
+        self, fake_redis: fakeredis.aioredis.FakeRedis, rollup: AsyncMock
+    ) -> None:
+        """Mirrors ``test_a_failed_rollup_is_named_in_the_warning`` for the OTHER
+        labeled write in the same fail-open loop — the Redis usage pipeline —
+        so the two operation names can never be confused with each other."""
+        log.reset()
+        broken_pipe = MagicMock()
+        broken_pipe.command_stack = [("INCRBYFLOAT",)]
+        broken_pipe.execute = AsyncMock(side_effect=RuntimeError("redis down"))
+        with patch.object(fake_redis, "pipeline", return_value=broken_pipe):
+            await record_model_call_usage(
+                USER, 0.01, REQUEST, input_tokens=10, output_tokens=5, charge_to_budget=True
+            )
+
+        failures = [w for w in log.get().get("warnings", []) if w.get("operation")]
+        assert [w["operation"] for w in failures] == ["redis_usage_pipeline"]
+        assert (
+            failures[0]["msg"] == f"{LogTag.STORAGE} Model call usage write failed (failing open)"
+        )
+        assert failures[0]["error"] == "redis down"
+        assert failures[0]["error_type"] == "RuntimeError"
 
 
 @pytest.mark.unit
@@ -390,4 +440,58 @@ class TestTokenOnlyCalls:
 
         failures = [w for w in log.get().get("warnings", []) if w.get("operation")]
         assert [w["operation"] for w in failures] == ["mongo_cost_rollup"]
+        assert (
+            failures[0]["msg"] == f"{LogTag.STORAGE} Model call usage write failed (failing open)"
+        )
+        assert failures[0]["error"] == "mongo down"
         assert failures[0]["error_type"] == "RuntimeError"
+
+
+@pytest.mark.unit
+class TestReadFailures:
+    """``get_cost`` / ``get_request_tokens`` fail open on a missing or broken
+    Redis client — the daily wall and the per-request ceiling must degrade
+    the read, never 500 the user's turn over a storage blip."""
+
+    async def test_get_cost_with_no_client_reads_zero_and_warns(self) -> None:
+        log.reset()
+        with patch.object(redis_cache, "redis", None):
+            result = await get_cost(USER, RateLimitPeriod.DAY)
+
+        assert result == 0.0
+        warnings = log.get().get("warnings", [])
+        assert [w["msg"] for w in warnings] == [
+            f"{LogTag.STORAGE} Redis unavailable — cost budget reads 0."
+        ]
+
+    async def test_get_cost_on_redis_error_reads_zero_and_names_the_failure(
+        self, fake_redis: fakeredis.aioredis.FakeRedis
+    ) -> None:
+        log.reset()
+        with patch.object(fake_redis, "get", AsyncMock(side_effect=RedisError("boom"))):
+            result = await get_cost(USER, RateLimitPeriod.DAY)
+
+        assert result == 0.0
+        warnings = log.get().get("warnings", [])
+        assert len(warnings) == 1
+        assert warnings[0]["msg"] == f"{LogTag.STORAGE} Cost budget read failed — reading 0"
+        assert warnings[0]["error"] == "boom"
+        assert warnings[0]["error_type"] == "RedisError"
+
+    async def test_get_request_tokens_with_no_client_reads_zero(self) -> None:
+        with patch.object(redis_cache, "redis", None):
+            assert await get_request_tokens(REQUEST) == 0
+
+    async def test_get_request_tokens_on_redis_error_reads_zero_and_names_the_failure(
+        self, fake_redis: fakeredis.aioredis.FakeRedis
+    ) -> None:
+        log.reset()
+        with patch.object(fake_redis, "get", AsyncMock(side_effect=RedisError("boom"))):
+            result = await get_request_tokens(REQUEST)
+
+        assert result == 0
+        warnings = log.get().get("warnings", [])
+        assert len(warnings) == 1
+        assert warnings[0]["msg"] == f"{LogTag.STORAGE} Request token read failed — reading 0"
+        assert warnings[0]["error"] == "boom"
+        assert warnings[0]["error_type"] == "RedisError"

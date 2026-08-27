@@ -16,7 +16,12 @@ from bson import ObjectId
 from fastapi import HTTPException
 import pytest
 
-from app.constants.cache import UPGRADE_LINK_CACHE_TTL
+from app.constants.cache import (
+    SUBSCRIPTION_PLAN_CACHE_PREFIX,
+    SUBSCRIPTION_PLAN_CACHE_TTL,
+    UPGRADE_LINK_CACHE_TTL,
+)
+from app.constants.log_tags import LogTag
 from app.constants.payments import PAYMENT_HISTORY_LIMIT
 from app.models.payment_models import (
     CreateSubscriptionResponse,
@@ -726,7 +731,11 @@ class TestCreateSubscription:
             )
 
         assert exc_info.value.status_code == 502
-        assert "Payments are disabled on this deployment" in str(exc_info.value.detail)
+        # Exact equality, not substring: the message is the operator's only
+        # clue, so any corruption of it must fail here.
+        assert str(exc_info.value.detail) == (
+            "Payment service error: Payments are disabled on this deployment (no Dodo client)"
+        )
 
 
 @pytest.mark.unit
@@ -945,6 +954,34 @@ class TestVerifyPaymentCompletion:
         mock_send_email.assert_not_awaited()
 
 
+class TestGetCachedPlanType:
+    """Cloud-mode cache path of DodoPaymentService.get_cached_plan_type
+    (the self_hosted short-circuit is covered in test_payment_service_selfhost)."""
+
+    async def test_cloud_mode_reads_and_writes_the_per_user_cache_key(
+        self,
+        payment_service,
+        mock_redis_cache,
+        mock_subscription_repository,
+    ):
+        mock_subscription_repository.get_active_for_user = AsyncMock(return_value=None)
+        mock_subscription_repository.get_latest_active_for_user = AsyncMock(return_value=None)
+
+        plan = await payment_service.get_cached_plan_type(FAKE_USER_ID)
+
+        assert plan is PlanType.FREE
+        # The key is the contract with every invalidation site (webhooks,
+        # grant_pro_access.py) — a corrupted key caches under the wrong name
+        # and the invalidations stop working.
+        expected_key = f"{SUBSCRIPTION_PLAN_CACHE_PREFIX}{FAKE_USER_ID}"
+        mock_redis_cache.get.assert_called_once_with(expected_key)
+        mock_redis_cache.set.assert_called_once_with(
+            expected_key,
+            {"plan_type": PlanType.FREE.value},
+            ttl=SUBSCRIPTION_PLAN_CACHE_TTL,
+        )
+
+
 class TestGetUserSubscriptionStatus:
     """Tests for DodoPaymentService.get_user_subscription_status."""
 
@@ -967,6 +1004,9 @@ class TestGetUserSubscriptionStatus:
         assert status.has_subscription is False
         assert status.current_plan is None
         assert status.subscription is None
+        # The lookup must be for THIS user — a wrong argument silently
+        # resolves someone else's (or nobody's) subscription.
+        mock_subscription_repository.get_active_for_user.assert_called_once_with(FAKE_USER_ID)
 
     async def test_active_subscription_returns_pro_status(
         self,
@@ -1710,11 +1750,20 @@ class TestDodoPaymentServiceInit:
         with patch("app.services.payments.payment_service.settings") as mock_settings:
             mock_settings.DEPLOYMENT_MODE = "self_hosted"
             mock_settings.DODO_PAYMENTS_API_KEY = "sk_live_should_be_unused"
-            with patch("app.services.payments.payment_service.DodoPayments") as mock_cls:
+            with (
+                patch("app.services.payments.payment_service.DodoPayments") as mock_cls,
+                patch("app.services.payments.payment_service.log") as mock_log,
+            ):
                 svc = DodoPaymentService()
 
             mock_cls.assert_not_called()
             assert svc.client is None
+            # The exact log line, message and reason both: the reason kwarg is
+            # what an operator greps for, and it must name THIS branch.
+            mock_log.info.assert_called_once_with(
+                f"{LogTag.PAYMENT} Dodo client not constructed",
+                reason="self_hosted_deployment",
+            )
 
     def test_missing_api_key_skips_construction_entirely(self):
         """No API key configured (e.g. a fresh dev box): don't call the SDK
@@ -1722,11 +1771,18 @@ class TestDodoPaymentServiceInit:
         with patch("app.services.payments.payment_service.settings") as mock_settings:
             mock_settings.DEPLOYMENT_MODE = "cloud"
             mock_settings.DODO_PAYMENTS_API_KEY = None
-            with patch("app.services.payments.payment_service.DodoPayments") as mock_cls:
+            with (
+                patch("app.services.payments.payment_service.DodoPayments") as mock_cls,
+                patch("app.services.payments.payment_service.log") as mock_log,
+            ):
                 svc = DodoPaymentService()
 
             mock_cls.assert_not_called()
             assert svc.client is None
+            mock_log.info.assert_called_once_with(
+                f"{LogTag.PAYMENT} Dodo client not constructed",
+                reason="no_api_key_configured",
+            )
 
 
 # ============================================================================

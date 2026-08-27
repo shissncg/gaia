@@ -93,5 +93,9 @@ def test_a_non_object_json_value_fails_loud(monkeypatch: pytest.MonkeyPatch) -> 
         "app.config.oauth_config.settings.COMPOSIO_AUTH_CONFIGS", '["gmail", "ac_x"]'
     )
 
-    with pytest.raises(ValueError, match="must be a JSON object"):
+    with pytest.raises(ValueError) as exc_info:
         get_composio_social_configs()
+    # Exact equality — a substring match cannot notice message corruption.
+    assert str(exc_info.value) == (
+        "COMPOSIO_AUTH_CONFIGS must be a JSON object mapping integration id -> auth config id"
+    )

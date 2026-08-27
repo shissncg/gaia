@@ -26,6 +26,13 @@ def _missing_keys(
     return None
 
 
+def _registered_group(validator: SettingsValidator, group_name: str) -> SettingsGroup:
+    for group in validator.groups:
+        if group.name == group_name:
+            return group
+    raise AssertionError(f"no registered group named {group_name!r}")
+
+
 def test_a_configured_posthog_is_not_reported_missing() -> None:
     """The group's keys must be the settings attribute names verbatim: a key
     that never matches an attribute leaves the group reported missing however
@@ -68,3 +75,19 @@ async def test_missing_posthog_is_warned_about_outside_production() -> None:
 
     posthog_warnings = [w for w in event["warnings"] if w["group_name"] == POSTHOG_GROUP]
     assert [set(w["missing_keys"]) for w in posthog_warnings] == [POSTHOG_FIELDS]
+
+
+def test_workos_group_description_states_callback_urls_and_password_length() -> None:
+    """The description is never read by any code path — it is the only place
+    an operator setting up WorkOS learns the exact callback URI to register
+    and that WORKOS_COOKIE_PASSWORD must be 32+ characters. Assert on it
+    verbatim so a dropped or garbled segment doesn't ship silently."""
+    group = _registered_group(SettingsValidator(), "WorkOS Authentication")
+
+    assert group.description == (
+        "WorkOS authentication service. After setup, register "
+        "<HOST>/api/v1/oauth/workos/callback as a Redirect URI in the "
+        "WorkOS dashboard (plus /desktop/callback and /mobile/callback "
+        "variants if you use those apps). WORKOS_COOKIE_PASSWORD must "
+        "be 32+ characters."
+    )

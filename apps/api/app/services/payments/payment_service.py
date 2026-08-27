@@ -326,12 +326,11 @@ class DodoPaymentService:
         if settings.DEPLOYMENT_MODE == "self_hosted":
             # is_subscribed=True is deliberate: every "upgrade" surface in the
             # web app keys on it, so self-host hides them without a web change.
+            # current_plan/subscription/days_remaining stay at their None model
+            # defaults — there is no subscription row to describe.
             return UserSubscriptionStatus(
                 user_id=user_id,
-                current_plan=None,
-                subscription=None,
                 is_subscribed=True,
-                days_remaining=None,
                 can_upgrade=False,
                 can_downgrade=False,
                 has_subscription=False,

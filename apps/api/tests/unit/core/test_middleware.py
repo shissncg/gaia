@@ -103,12 +103,18 @@ def test_cors_allowed_origins_setting_extends_the_list(monkeypatch) -> None:
     from app.core import middleware as mw
 
     monkeypatch.setattr(
-        mw.settings, "CORS_ALLOWED_ORIGINS", "https://gaia.example.com, https://alt.example.com/"
+        mw.settings,
+        "CORS_ALLOWED_ORIGINS",
+        "https://gaia.example.com, https://alt.example.com/, https://not-stripped.example.comX",
     )
     origins = mw.get_allowed_origins()
     assert "https://gaia.example.com" in origins
     assert "https://alt.example.com" in origins  # trailing slash stripped
+    # Only a trailing "/" is stripped — not any other trailing character.
+    assert "https://not-stripped.example.comX" in origins
     assert mw.settings.FRONTEND_URL in origins  # never replaces the base list
+    # Built-in dev origin: exact literal, case-sensitive.
+    assert "http://localhost:3000" in origins
 
 
 def test_cors_origin_regex_setting_wins(monkeypatch) -> None:

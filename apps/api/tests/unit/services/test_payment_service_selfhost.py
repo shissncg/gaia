@@ -3,7 +3,7 @@ See .agents/plans/selfhost/04-billing.md."""
 
 import pytest
 
-from app.models.payment_models import PlanType
+from app.models.payment_models import PlanType, SubscriptionStatus
 
 
 @pytest.mark.asyncio
@@ -42,3 +42,8 @@ async def test_subscription_status_reports_pro_without_mongo(monkeypatch):
     assert status.is_subscribed is True  # existing UI logic keys on this
     assert status.has_subscription is False  # there is no subscription row
     assert status.can_upgrade is False
+    assert status.can_downgrade is False  # model default is True; must be set
+    assert status.status == SubscriptionStatus.ACTIVE
+    assert status.current_plan is None
+    assert status.subscription is None
+    assert status.days_remaining is None

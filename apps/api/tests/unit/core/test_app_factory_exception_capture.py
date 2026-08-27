@@ -1,4 +1,4 @@
-"""PostHog attribution of unhandled exceptions.
+"""PostHog attribution of unhandled exceptions, and the docs-exposure gate.
 
 ``PostHogRequestContextMiddleware`` identifies inside ``with new_context():``
 wrapped around ``call_next``. An exception propagating out of it unwinds that
@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from httpx import ASGITransport, AsyncClient
 import pytest
 
+from app.config.settings import settings
 from app.core.app_factory import create_app
 
 
@@ -129,3 +130,57 @@ async def test_unavailable_posthog_provider_still_returns_the_json_500(
     assert response.status_code == 500
     assert response.json() == {"error": "internal_server_error"}
     posthog_client.capture_exception.assert_not_called()
+
+
+def test_docs_are_exposed_outside_production_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No EXPOSE_API_DOCS override: docs follow the ENV != production default."""
+    monkeypatch.setattr(settings, "ENV", "development")
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", None)
+    app = _hermetic_app()
+
+    assert app.openapi_url == "/openapi.json"
+    assert app.docs_url == "/docs"
+    assert app.redoc_url == "/redoc"
+
+
+def test_docs_are_hidden_in_production_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No EXPOSE_API_DOCS override: production still gets no docs endpoints."""
+    monkeypatch.setattr(settings, "ENV", "production")
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", None)
+    app = _hermetic_app()
+
+    assert app.openapi_url is None
+    assert app.docs_url is None
+    assert app.redoc_url is None
+
+
+def test_expose_api_docs_override_exposes_docs_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EXPOSE_API_DOCS=True overrides ENV — a self-host on ENV=production that
+    still wants /docs reachable."""
+    monkeypatch.setattr(settings, "ENV", "production")
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", True)
+    app = _hermetic_app()
+
+    assert app.openapi_url == "/openapi.json"
+    assert app.docs_url == "/docs"
+    assert app.redoc_url == "/redoc"
+
+
+def test_expose_api_docs_override_hides_docs_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EXPOSE_API_DOCS=False overrides ENV — a self-host on ENV=development on
+    a public domain that wants docs off."""
+    monkeypatch.setattr(settings, "ENV", "development")
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", False)
+    app = _hermetic_app()
+
+    assert app.openapi_url is None
+    assert app.docs_url is None
+    assert app.redoc_url is None

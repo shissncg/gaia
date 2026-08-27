@@ -20,6 +20,7 @@ import pytest
 
 from app.config.rate_limits import get_daily_cost_budget_usd, get_per_request_token_ceiling
 from app.constants.llm import BUDGET_WRAPUP_REMAINING_FRACTION
+from app.constants.log_tags import LogTag
 from app.db.redis import redis_cache
 from app.models.payment_models import PlanType
 from app.services.cost_budget import (
@@ -181,21 +182,38 @@ class TestRequestCeiling:
 @pytest.mark.unit
 class TestThreadingGaps:
     async def test_no_user_id_reports_nothing_read_at_all(self) -> None:
+        log.reset()
         check = await get_budget_stop_reason(None, PlanType.FREE, REQUEST)
 
         assert check == (None, None, None)
+        warnings = log.get().get("warnings", [])
+        assert [w["msg"] for w in warnings] == [
+            f"{LogTag.AGENT} Budget check skipped — no user_id in configurable "
+            "(nothing to enforce against; threading gap?)."
+        ]
 
     async def test_a_missing_plan_is_derived_and_reported_back(self) -> None:
+        log.reset()
         await _spend(0.01)
 
+        mock_get_plan = AsyncMock(return_value=PlanType.PRO)
         with patch(
             "app.services.cost_budget.payment_service.get_cached_plan_type",
-            AsyncMock(return_value=PlanType.PRO),
+            mock_get_plan,
         ):
             check = await get_budget_stop_reason(USER, None, REQUEST)
 
         assert check.plan_type == PlanType.PRO
         assert check.spent_usd == pytest.approx(0.01)
+        mock_get_plan.assert_awaited_once_with(USER)
+
+        derived = [w for w in log.get().get("warnings", []) if "derived via" in w["msg"]]
+        assert len(derived) == 1
+        assert derived[0]["msg"] == (
+            f"{LogTag.AGENT} plan_type missing from configurable — derived via "
+            "cached lookup (upstream threading gap)."
+        )
+        assert derived[0]["user"] == {"id": USER}
 
     async def test_a_derived_plan_still_binds_the_wall(self) -> None:
         await _spend(get_daily_cost_budget_usd(PlanType.FREE))
@@ -250,6 +268,7 @@ class TestThreadingGaps:
 
     async def test_a_missing_request_id_still_reports_the_spend_when_nothing_binds(self) -> None:
         # Skipping the ceiling read must not also cost the wrap-up nudge its input.
+        log.reset()
         await _spend(0.01)
 
         check = await get_budget_stop_reason(USER, PlanType.FREE, None)
@@ -257,6 +276,11 @@ class TestThreadingGaps:
         assert check.stop_reason is None
         assert check.spent_usd == pytest.approx(0.01)
         assert check.plan_type == PlanType.FREE
+        warnings = log.get().get("warnings", [])
+        assert [w["msg"] for w in warnings] == [
+            f"{LogTag.AGENT} Per-request ceiling skipped — missing root_request_id "
+            "in configurable (threading gap?)."
+        ]
 
     async def test_a_missing_request_id_cannot_bind_the_token_ceiling(self) -> None:
         await _burn_tokens(get_per_request_token_ceiling(PlanType.FREE))
@@ -271,16 +295,23 @@ class TestSelfHostedDeployment:
         without even the plan-derivation read the None-plan path would trigger."""
         await _spend(get_daily_cost_budget_usd(PlanType.FREE))
 
+        # A raising side_effect alone cannot prove the early return: the
+        # None-plan derivation path wraps the lookup in a fail-open
+        # `except Exception` that swallows the probe and returns the very same
+        # no-enforcement BudgetCheck. The call count is what the swallow
+        # cannot hide.
+        plan_probe = AsyncMock(side_effect=AssertionError("plan lookup must not happen"))
         with (
             patch("app.services.cost_budget.settings.DEPLOYMENT_MODE", "self_hosted"),
             patch(
                 "app.services.cost_budget.payment_service.get_cached_plan_type",
-                AsyncMock(side_effect=AssertionError("plan lookup must not happen")),
+                plan_probe,
             ),
         ):
             check = await get_budget_stop_reason(USER, None, REQUEST)
 
         assert check == (None, None, None)
+        plan_probe.assert_not_called()
 
 
 @pytest.mark.unit
