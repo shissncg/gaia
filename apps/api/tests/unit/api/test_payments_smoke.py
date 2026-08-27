@@ -10,10 +10,12 @@ Covers:
 """
 
 from datetime import UTC, datetime
+import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from httpx import AsyncClient
+import pytest
+from starlette.routing import NoMatchFound
 
 from app.models.payment_models import (
     CreateSubscriptionResponse,
@@ -34,18 +36,32 @@ class TestRouterMountedInEveryMode:
     sidebar's "Upgrade to Pro" promo reappeared on a live self-hosted deploy.
     Mode-specific behavior belongs inside the endpoints (the waist answers
     PRO; Dodo-touching handlers raise via _require_client), never at the
-    mount. Import-time settings cannot be re-patched here, so the assertion
-    is on the mounted route table itself.
+    mount. The suite pins DEPLOYMENT_MODE=cloud (conftest), so an HTTP probe
+    through the client fixture can never see the 404 — the mount conditional
+    runs at module import, so the test patches the settings singleton and
+    reloads the routes module. Resolution goes through url_path_for because
+    include_router may hold lazy _IncludedRouter entries without .path.
     """
 
     @pytest.mark.regression
-    async def test_subscription_status_answers_not_404(self, client: AsyncClient):
-        response = await client.get("/api/v1/payments/subscription-status")
-        assert response.status_code != 404, (
-            "payments router is not mounted — the web's subscription hook "
-            "gets no status and upgrade UI reappears on self-hosted deploys"
-        )
-        assert response.status_code == 200
+    def test_payments_routes_mount_in_self_hosted_mode(self):
+        import app.api.v1.routes as routes_module
+        from app.config.settings import settings
+
+        try:
+            with patch.object(settings, "DEPLOYMENT_MODE", "self_hosted"):
+                reloaded = importlib.reload(routes_module)
+                try:
+                    path = reloaded.router.url_path_for("get_subscription_status_endpoint")
+                except NoMatchFound:
+                    path = None
+            assert path == "/payments/subscription-status", (
+                "payments router is not mounted in self_hosted mode — the web's "
+                "subscription hook gets no status and upgrade UI reappears on "
+                "self-hosted deploys"
+            )
+        finally:
+            importlib.reload(routes_module)
 
 
 _NOW = datetime.now(UTC)
