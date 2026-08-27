@@ -47,3 +47,7 @@ async def test_subscription_status_reports_pro_without_mongo(monkeypatch):
     assert status.current_plan is None
     assert status.subscription is None
     assert status.days_remaining is None
+    # The Nones are passed EXPLICITLY, not inherited from model defaults:
+    # model_fields_set drives exclude_unset serialization, so a dropped kwarg
+    # changes what API consumers receive even when the value is identical.
+    assert {"current_plan", "subscription", "days_remaining"} <= status.model_fields_set
