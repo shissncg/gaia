@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.config.oauth_config import get_composio_social_configs
+from app.config.oauth_config import get_composio_social_configs, get_integration_by_config
 
 # Vendor defaults (OAUTH_INTEGRATIONS) as of this test's writing — pinned so a
 # behavior change in the catalog itself surfaces as a clear failure here.
@@ -20,10 +20,12 @@ GOOGLECALENDAR_DEFAULT_AUTH_CONFIG_ID = "ac_exqcpnLvCzGJ"
 
 @pytest.fixture(autouse=True)
 def _clear_composio_config_cache():
-    """get_composio_social_configs is @cache'd — never leak overrides across tests."""
+    """Both lookups are @cache'd — never leak overrides across tests."""
     get_composio_social_configs.cache_clear()
+    get_integration_by_config.cache_clear()
     yield
     get_composio_social_configs.cache_clear()
+    get_integration_by_config.cache_clear()
 
 
 def test_an_override_for_gmail_replaces_only_gmails_auth_config_id(
@@ -86,6 +88,56 @@ def test_malformed_json_fails_loud_naming_the_setting(monkeypatch: pytest.Monkey
 
     with pytest.raises(ValueError, match="COMPOSIO_AUTH_CONFIGS is not valid JSON"):
         get_composio_social_configs()
+
+
+@pytest.mark.regression
+def test_reverse_lookup_resolves_an_overridden_auth_config_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the OAuth callback and Composio webhook map a connected
+    account back to an integration via get_integration_by_config. On a live
+    self-hosted deploy the Google consent completed and the callback then
+    failed with "Integration config not found" — the reverse lookup compared
+    against the vendor's hardcoded ids only, never the self-hoster's
+    COMPOSIO_AUTH_CONFIGS overrides that the connect path had just used.
+    """
+    monkeypatch.setattr(
+        "app.config.oauth_config.settings.COMPOSIO_AUTH_CONFIGS",
+        '{"gmail": "ac_yourGmailCfg"}',
+    )
+
+    integration = get_integration_by_config("ac_yourGmailCfg")
+
+    assert integration is not None, (
+        "overridden auth config id did not resolve — a self-hoster's OAuth "
+        "callback fails with 'Integration config not found' after a "
+        "successful Google consent"
+    )
+    assert integration.id == "gmail"
+
+
+def test_reverse_lookup_ignores_a_vendor_id_that_was_overridden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Once gmail is overridden, the vendor's default id no longer identifies
+    # gmail on this deployment — matching it would resurrect the split-brain.
+    monkeypatch.setattr(
+        "app.config.oauth_config.settings.COMPOSIO_AUTH_CONFIGS",
+        '{"gmail": "ac_yourGmailCfg"}',
+    )
+
+    assert get_integration_by_config(GMAIL_DEFAULT_AUTH_CONFIG_ID) is None
+
+
+def test_reverse_lookup_still_resolves_vendor_defaults_without_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.config.oauth_config.settings.COMPOSIO_AUTH_CONFIGS", "")
+
+    integration = get_integration_by_config(GMAIL_DEFAULT_AUTH_CONFIG_ID)
+
+    assert integration is not None
+    assert integration.id == "gmail"
 
 
 def test_a_non_object_json_value_fails_loud(monkeypatch: pytest.MonkeyPatch) -> None:
