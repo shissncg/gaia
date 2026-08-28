@@ -2065,12 +2065,22 @@ def get_composio_social_configs() -> dict[str, ComposioConfig]:
 
 @cache
 def get_integration_by_config(auth_config_id: str) -> OAuthIntegration | None:
-    """Get an integration by its Composio auth config ID."""
+    """Get an integration by its EFFECTIVE Composio auth config ID.
+
+    Effective = the COMPOSIO_AUTH_CONFIGS override when present, else the
+    vendor default — the same id the connect path hands to Composio. The
+    OAuth callback and webhook reverse-map through here; comparing vendor
+    defaults only made a self-hoster's flow complete at Google and then die
+    with "Integration config not found". An overridden vendor id no longer
+    identifies its integration on that deployment.
+    """
+    overrides = _parse_composio_auth_config_overrides()
     return next(
         (
             i
             for i in OAUTH_INTEGRATIONS
-            if i.composio_config and i.composio_config.auth_config_id == auth_config_id
+            if i.composio_config
+            and overrides.get(i.id, i.composio_config.auth_config_id) == auth_config_id
         ),
         None,
     )
