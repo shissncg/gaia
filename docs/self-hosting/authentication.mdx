@@ -32,12 +32,12 @@ Set these in your API environment (`apps/api/.env`, or the equivalent secret sto
 |---|---|
 | `WORKOS_API_KEY` | API key from the WorkOS dashboard |
 | `WORKOS_CLIENT_ID` | Client ID from the WorkOS dashboard |
-| `WORKOS_COOKIE_PASSWORD` | Password used to seal the session cookie — must be 32+ characters |
+| `WORKOS_COOKIE_PASSWORD` | Seals the session cookie. Must be a valid Fernet key: url-safe base64 that decodes to exactly 32 bytes (a 44-character base64 string). A plain 32-character password is NOT valid and fails at login with `Fernet key must be 32 url-safe base64-encoded bytes` |
 
-Generate a `WORKOS_COOKIE_PASSWORD`:
+Generate a valid `WORKOS_COOKIE_PASSWORD`:
 
 ```bash
-openssl rand -base64 33
+openssl rand -base64 32
 ```
 
 ## Redirect URIs to register
